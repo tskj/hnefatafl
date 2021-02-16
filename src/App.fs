@@ -7,24 +7,73 @@ module App =
     open Fable.React.Props
     open Fss
     open System
+    
+    let unCurry f (x, y) = f x y
 
-    type Model = { Input: string; Todos: string list }
+    let isDarkSquare i j = (i + j) % 2 = 0
+    let isKing'sSquare i j = i = 0 && j = 0
+
+    let isKing'sManSquare (i: int) (j: int) =
+        let i' = Math.Abs i
+        let j' = Math.Abs j
+
+        [ (0, 1)
+          (0, 2)
+          (1, 0)
+          (2, 0)
+          (1, 1) ]
+        |> List.contains (i', j')
+
+    let isClan'sManSquare (i: int) (j: int) =
+        let i' = Math.Abs i
+        let j' = Math.Abs j
+
+        [ (0, 4)
+          (0, 5)
+          (1, 5)
+          (2, 5)
+          (4, 0)
+          (5, 0)
+          (5, 1)
+          (5, 2) ]
+        |> List.contains (i', j')
+
+    let isKing'sCastle i j = (i = 5 || i = -5) && (j = 5 || j = -5)
+    
+    let boardCoords =
+        [-5 .. 5] |> List.collect
+            (fun i -> [-5 .. 5] |> List.map
+                        (fun j -> i,j))
+    
+    type Piece =
+        | King
+        | King'sMan
+        | Clan'sMan
+        
+    type Board = {
+        king'sPosition: int * int
+        king'sMen: (int * int) list
+        clan'sMen: (int * int) list
+    }
+    
+    let initBoard () = {
+            king'sPosition = 0,0
+            king'sMen = boardCoords |> List.filter (unCurry isKing'sManSquare)
+            clan'sMen = boardCoords |> List.filter (unCurry isClan'sManSquare)
+        }
+
+    type Model = { boardState: Board }
 
     type Msg =
         | SetInput of string
         | AddTodo of string
 
-    let init () = { Input = ""; Todos = [] }
+    let init () = { boardState = initBoard () }
 
     let update (msg: Msg) (model: Model): Model =
-        match msg with
-        | SetInput input -> { model with Input = input }
-        | AddTodo todo ->
-            { model with
-                  Todos = model.Todos @ [ todo ]
-                  Input = "" }
+        model
 
-    let render (model: Model) (dispatch: Msg -> unit) =
+    let render ({ boardState = boardState }: Model) (dispatch: Msg -> unit) =
         let grid =
             fss [ Display.Grid
                   GridTemplateColumns.Repeat(11, px 50)
@@ -79,57 +128,26 @@ module App =
                 Top' (pct 50)
             ]
 
-        let isDarkSquare i j = (i + j) % 2 = 0
-        let isKing'sSquare i j = i = 0 && j = 0
-
-        let isKing'sManSquare (i: int) (j: int) =
-            let i' = Math.Abs i
-            let j' = Math.Abs j
-
-            [ (0, 1)
-              (0, 2)
-              (1, 0)
-              (2, 0)
-              (1, 1) ]
-            |> List.contains (i', j')
-
-        let isClan'sManSquare (i: int) (j: int) =
-            let i' = Math.Abs i
-            let j' = Math.Abs j
-
-            [ (0, 4)
-              (0, 5)
-              (1, 5)
-              (2, 5)
-              (4, 0)
-              (5, 0)
-              (5, 1)
-              (5, 2) ]
-            |> List.contains (i', j')
-
-        let isKing'sCastle i j = (i = 5 || i = -5) && (j = 5 || j = -5)
-
         div [ ClassName grid ] <|
-            ([ -5 .. 5 ] |> List.collect
-                (fun i -> [ -5 .. 5 ] |> List.map
-                            (fun j ->
-                                div [ ClassName(
-                                        square
-                                          (isDarkSquare i j)
-                                          (isKing'sSquare i j)
-                                          (isKing'sManSquare i j)
-                                          (isClan'sManSquare i j)
-                                          (isKing'sCastle i j) ) ]
-                                    [
-                                        if isKing'sSquare i j then
-                                            div [ ClassName kingPiece ] []
-                                            
-                                        if isKing'sManSquare i j then
-                                            div [ ClassName (piece true) ] []
-                                            
-                                        if isClan'sManSquare i j then
-                                            div [ ClassName (piece false) ] []
-                                    ])))
+        (boardCoords |> List.map
+            (fun (i,j) ->
+                div [ ClassName(
+                        square
+                          (isDarkSquare i j)
+                          (isKing'sSquare i j)
+                          (isKing'sManSquare i j)
+                          (isClan'sManSquare i j)
+                          (isKing'sCastle i j) ) ]
+                    [
+                        if boardState.king'sPosition = (i, j) then
+                            div [ ClassName kingPiece ] []
+                            
+                        if boardState.king'sMen |> List.contains (i, j) then
+                            div [ ClassName (piece true) ] []
+                            
+                        if boardState.clan'sMen |> List.contains (i, j) then
+                            div [ ClassName (piece false) ] []
+                    ]))
 
     Program.mkSimple init update render
     |> Program.withReactSynchronous "elmish-app"
