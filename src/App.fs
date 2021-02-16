@@ -69,12 +69,15 @@ module App =
     type Model = { boardState: Board }
 
     type Msg =
-        | Drop of (Piece * int * int)
+        | Drop of (Piece * (int * int) * (int * int))
 
     let init () = { boardState = initBoard () }
 
     let update (msg: Msg) (model: Model): Model =
-        model
+        match msg with
+        | Drop (King, (fromX, fromY), (toX, toY)) ->
+            { model with boardState = { model.boardState with king'sPosition = (toX, toY) } }
+        | _ -> model
 
     let render ({ boardState = boardState }: Model) (dispatch: Msg -> unit) =
         let grid =
@@ -171,8 +174,11 @@ module App =
                           e.preventDefault()
                           e.dataTransfer.getData("dragging")
                           |> parsePiecePosition
-                          |> Option.map (Drop >> dispatch)
-                          |> ignore)
+                          |> Option.map (fun (piece, x, y) ->
+                                                (piece, (x, y), (i, j))
+                                                    |> Drop
+                                                    |> dispatch
+                                        ) |> ignore)
                 ]
                     [
                         if boardState.king'sPosition = (i, j) then
