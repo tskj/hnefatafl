@@ -8,8 +8,12 @@ module App =
     open Fss
     open System
     
-    let unCurry f (x, y) = f x y
-
+    let uncurry f (x,y) = f x y
+    let parse (s: string) =
+        match Int32.TryParse(s) with
+        | (true, i) -> Some i
+        | _ -> Option.None
+    
     let isDarkSquare i j = (i + j) % 2 = 0
     let isKing'sSquare i j = i = 0 && j = 0
 
@@ -58,19 +62,19 @@ module App =
     
     let initBoard () = {
             king'sPosition = 0,0
-            king'sMen = boardCoords |> List.filter (unCurry isKing'sManSquare)
-            clan'sMen = boardCoords |> List.filter (unCurry isClan'sManSquare)
+            king'sMen = boardCoords |> List.filter (uncurry isKing'sManSquare)
+            clan'sMen = boardCoords |> List.filter (uncurry isClan'sManSquare)
         }
 
     type Model = { boardState: Board }
 
     type Msg =
-        | SetInput of string
-        | AddTodo of string
+        | Drop of (Piece * int * int)
 
     let init () = { boardState = initBoard () }
 
     let update (msg: Msg) (model: Model): Model =
+        printfn "%A" msg
         model
 
     let render ({ boardState = boardState }: Model) (dispatch: Msg -> unit) =
@@ -127,6 +131,31 @@ module App =
                 Left' (pct 50)
                 Top' (pct 50)
             ]
+            
+        let serializePiecePosition piece (i,j) =
+            let pieceName =
+                match piece with
+                | King -> "King"
+                | King'sMan -> "KingMan"
+                | Clan'sMan -> "ClanMan"
+            sprintf "%s:%i:%i" pieceName i j
+            
+        let parsePiecePosition (piecePos: string) =
+            piecePos.Split(':')
+            |> function
+            | [| piece; i; j |] ->
+                let i = parse i
+                let j = parse j
+                match piece, i, j with
+                | "King", Some i, Some j ->
+                    Some (King, i, j)
+                | "KingMan", Some i, Some j  ->
+                    Some (King'sMan, i, j)
+                | "ClanMan", Some i, Some j ->
+                    Some (Clan'sMan, i, j)
+                | _ -> Option.None
+            | _ ->
+                Option.None
 
         div [ ClassName grid ] <|
         (boardCoords |> List.map
@@ -137,10 +166,24 @@ module App =
                           (isKing'sSquare i j)
                           (isKing'sManSquare i j)
                           (isClan'sManSquare i j)
-                          (isKing'sCastle i j) ) ]
+                          (isKing'sCastle i j) )
+                      OnDragOver (fun e -> e.preventDefault())
+                      OnDrop (fun e ->
+                          e.preventDefault()
+                          e.dataTransfer.getData("dragging")
+                          //|> parsePiecePosition
+                          //|> Option.map (Drop >> dispatch)
+                          |> ignore)
+                ]
                     [
                         if boardState.king'sPosition = (i, j) then
-                            div [ ClassName kingPiece ] []
+                            div [ ClassName kingPiece
+                                  Draggable true
+                                  OnDragStart (fun e ->
+                                      //e.dataTransfer.setData("dragging", serializePiecePosition King (i,j))
+                                      //|> ignore)
+                                      ())
+                                  ] []
                             
                         if boardState.king'sMen |> List.contains (i, j) then
                             div [ ClassName (piece true) ] []
@@ -150,5 +193,5 @@ module App =
                     ]))
 
     Program.mkSimple init update render
-    |> Program.withReactSynchronous "elmish-app"
+    |> Program.withReactSynchronous "app"
     |> Program.run
