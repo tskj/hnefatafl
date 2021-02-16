@@ -74,7 +74,6 @@ module App =
     let init () = { boardState = initBoard () }
 
     let update (msg: Msg) (model: Model): Model =
-        printfn "%A" msg
         model
 
     let render ({ boardState = boardState }: Model) (dispatch: Msg -> unit) =
@@ -171,8 +170,8 @@ module App =
                       OnDrop (fun e ->
                           e.preventDefault()
                           e.dataTransfer.getData("dragging")
-                          //|> parsePiecePosition
-                          //|> Option.map (Drop >> dispatch)
+                          |> parsePiecePosition
+                          |> Option.map (Drop >> dispatch)
                           |> ignore)
                 ]
                     [
@@ -180,9 +179,8 @@ module App =
                             div [ ClassName kingPiece
                                   Draggable true
                                   OnDragStart (fun e ->
-                                      //e.dataTransfer.setData("dragging", serializePiecePosition King (i,j))
-                                      //|> ignore)
-                                      ())
+                                      e.dataTransfer.setData("dragging", serializePiecePosition King (i,j))
+                                      |> ignore)
                                   ] []
                             
                         if boardState.king'sMen |> List.contains (i, j) then
@@ -193,5 +191,5 @@ module App =
                     ]))
 
     Program.mkSimple init update render
-    |> Program.withReactSynchronous "app"
+    |> Program.withReactSynchronous "elmish-app"
     |> Program.run
