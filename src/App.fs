@@ -31,7 +31,9 @@ module App =
                   GridTemplateRows.Repeat(11, px 50) ]
 
         let square dark king'sSquare king'sManSquare clan'sManSquare isKing'sCastle =
-            fss [ if dark then
+            fss [ Position.Relative
+                  
+                  if dark then
                       BackgroundColor.gainsboro
                   else
                       BackgroundColor.white
@@ -47,6 +49,34 @@ module App =
 
                   if isKing'sCastle then
                       BackgroundColor.lime
+            ]
+            
+        let kingPiece =
+            fss [
+                BackgroundColor.orangeRed
+                Height' (pct 100)
+                Width' (pct 100)
+                BorderRadius' (pct 100)
+            ]
+            
+        let piece king'sMan =
+            fss [
+                if king'sMan then
+                    BackgroundColor.orangeRed
+                else
+                    BackgroundColor.black
+                    
+                Height' (pct 70)
+                Width' (pct 70)
+                BorderRadius' (pct 100)
+                
+                Position.Absolute
+                Transforms [
+                    Transform.TranslateX (pct -50)
+                    Transform.TranslateY (pct -50)
+                ]
+                Left' (pct 50)
+                Top' (pct 50)
             ]
 
         let isDarkSquare i j = (i + j) % 2 = 0
@@ -89,7 +119,17 @@ module App =
                                           (isKing'sSquare i j)
                                           (isKing'sManSquare i j)
                                           (isClan'sManSquare i j)
-                                          (isKing'sCastle i j) ) ] [])))
+                                          (isKing'sCastle i j) ) ]
+                                    [
+                                        if isKing'sSquare i j then
+                                            div [ ClassName kingPiece ] []
+                                            
+                                        if isKing'sManSquare i j then
+                                            div [ ClassName (piece true) ] []
+                                            
+                                        if isClan'sManSquare i j then
+                                            div [ ClassName (piece false) ] []
+                                    ])))
 
     Program.mkSimple init update render
     |> Program.withReactSynchronous "elmish-app"
