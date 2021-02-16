@@ -10,7 +10,7 @@ module App =
     
     let uncurry f (x,y) = f x y
     let parse (s: string) =
-        match Int32.TryParse(s) with
+        match Int32.TryParse s with
         | (true, i) -> Some i
         | _ -> Option.None
     
@@ -74,9 +74,22 @@ module App =
     let init () = { boardState = initBoard () }
 
     let update (msg: Msg) (model: Model): Model =
+        printfn "%A" model
         match msg with
         | Drop (King, (fromX, fromY), (toX, toY)) ->
             { model with boardState = { model.boardState with king'sPosition = (toX, toY) } }
+        | Drop (King'sMan, (fromX, fromY), (toX, toY)) ->
+            { model with boardState = {
+                        model.boardState with king'sMen =
+                                                (toX, toY) ::
+                                                model.boardState.king'sMen
+                                                |> List.filter (fun (i,j) -> not (fromX = i && fromY = j)) } }
+        | Drop (Clan'sMan, (fromX, fromY), (toX, toY)) ->
+            { model with boardState = {
+                        model.boardState with clan'sMen =
+                                                (toX, toY) ::
+                                                model.boardState.clan'sMen
+                                                |> List.filter (fun (i,j) -> not (fromX = i && fromY = j)) } }
         | _ -> model
 
     let render ({ boardState = boardState }: Model) (dispatch: Msg -> unit) =
@@ -190,10 +203,20 @@ module App =
                                   ] []
                             
                         if boardState.king'sMen |> List.contains (i, j) then
-                            div [ ClassName (piece true) ] []
+                            div [ ClassName (piece true)
+                                  Draggable true
+                                  OnDragStart (fun e ->
+                                      e.dataTransfer.setData("dragging", serializePiecePosition King'sMan (i,j))
+                                      |> ignore)
+                                   ] []
                             
                         if boardState.clan'sMen |> List.contains (i, j) then
-                            div [ ClassName (piece false) ] []
+                            div [ ClassName (piece false)
+                                  Draggable true
+                                  OnDragStart (fun e ->
+                                      e.dataTransfer.setData("dragging", serializePiecePosition Clan'sMan (i,j))
+                                      |> ignore)
+                                   ] []
                     ]))
 
     Program.mkSimple init update render
