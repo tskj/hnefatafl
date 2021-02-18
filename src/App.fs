@@ -66,39 +66,91 @@ module App =
             clan'sMen = boardCoords |> List.filter (uncurry isClan'sManSquare)
         }
 
-    type Model = { boardState: Board }
+    type Model = { boardState: Board
+                   currentlyDragging: (Piece * int * int) option }
 
     type Msg =
         | Drop of (Piece * (int * int) * (int * int))
+        | SetDragging of (Piece * int * int)
 
-    let init () = { boardState = initBoard () }
+    let init () = { boardState = initBoard ()
+                    currentlyDragging = Option.None }
+    
+    let tee f x =
+        f x
+        x
+    
+    let legalMoves (board: Board) x y =
+        let isKing = board.king'sPosition = (x,y)
+        let occupiedSquares = board.king'sPosition :: board.king'sMen @ board.clan'sMen |> Set.ofList
+        let allPossibleMoves = boardCoords
+        let rec squaresBetween (x:int,y:int) (i,j) =
+            let deltaX = Math.Sign(i - x)
+            let deltaY = Math.Sign(j - y)
+            if deltaX = 0 && deltaY = 0 ||
+               deltaX > 0 && x >= i ||
+               deltaX < 0 && x <= i ||
+               deltaY > 0 && y >= j ||
+               deltaY < 0 && y <= j then
+                   Set.empty
+            else
+                squaresBetween (x + deltaX, y + deltaY) (i, j)
+                |> Set.add (x + deltaX, y + deltaY)
+                
+        allPossibleMoves
+        |> List.filter (fun (i,j) ->
+            // Remove occupied squares
+            occupiedSquares |> Set.contains (i,j) |> not)
+        |> List.filter (fun (i,j) ->
+            // Remove all that are not horizontal or vertical 
+            let deltaX = x - i
+            let deltaY = y - j
+            deltaX = 0 || deltaY = 0 )
+        |> List.filter (fun (i,j) ->
+            // Remove all occluded squares between start and end
+            let travelSquares = squaresBetween (x,y) (i,j)
+            let unoccupiedTravelSquares = Set.difference travelSquares occupiedSquares
+            unoccupiedTravelSquares = travelSquares)
+        |> List.filter (fun (i,j) ->
+            // Remove all the King's squares for everyone but the King
+            [(5,5);(-5,-5);(-5,5);(5,-5);(0,0)] |> List.contains (i,j) |> not
+            || isKing )
 
     let update (msg: Msg) (model: Model): Model =
-        printfn "%A" model
         match msg with
-        | Drop (King, (fromX, fromY), (toX, toY)) ->
-            { model with boardState = { model.boardState with king'sPosition = (toX, toY) } }
-        | Drop (King'sMan, (fromX, fromY), (toX, toY)) ->
-            { model with boardState = {
-                        model.boardState with king'sMen =
-                                                (toX, toY) ::
-                                                model.boardState.king'sMen
-                                                |> List.filter (fun (i,j) -> not (fromX = i && fromY = j)) } }
-        | Drop (Clan'sMan, (fromX, fromY), (toX, toY)) ->
-            { model with boardState = {
-                        model.boardState with clan'sMen =
-                                                (toX, toY) ::
-                                                model.boardState.clan'sMen
-                                                |> List.filter (fun (i,j) -> not (fromX = i && fromY = j)) } }
+        | Drop (piece, (fromX, fromY), (toX, toY)) ->
+            let isLegalMove = legalMoves model.boardState fromX fromY |> List.contains (toX, toY)
+            if isLegalMove then
+                match piece with
+                | King ->
+                    { model with boardState = { model.boardState with king'sPosition = (toX, toY) }
+                                 currentlyDragging = Option.None }
+                | King'sMan ->
+                    { model with boardState = {
+                                model.boardState with king'sMen =
+                                                        (toX, toY) ::
+                                                        model.boardState.king'sMen
+                                                        |> List.filter (fun (i,j) -> not (fromX = i && fromY = j)) } 
+                                 currentlyDragging = Option.None }
+                | Clan'sMan ->
+                    { model with boardState = {
+                                model.boardState with clan'sMen =
+                                                        (toX, toY) ::
+                                                        model.boardState.clan'sMen
+                                                        |> List.filter (fun (i,j) -> not (fromX = i && fromY = j)) } 
+                                 currentlyDragging = Option.None }
+            else model
+        | SetDragging data ->
+            { model with currentlyDragging = Some data }
         | _ -> model
 
-    let render ({ boardState = boardState }: Model) (dispatch: Msg -> unit) =
+    let render ({ boardState = boardState; currentlyDragging = currentlyDragging }: Model) (dispatch: Msg -> unit) =
         let grid =
             fss [ Display.Grid
                   GridTemplateColumns.Repeat(11, px 50)
                   GridTemplateRows.Repeat(11, px 50) ]
 
-        let square dark king'sSquare king'sManSquare clan'sManSquare isKing'sCastle =
+        let square dark king'sSquare king'sManSquare clan'sManSquare isKing'sCastle isAttemptedDragTo =
             fss [ Position.Relative
                   
                   if dark then
@@ -117,18 +169,16 @@ module App =
 
                   if isKing'sCastle then
                       BackgroundColor.lime
-            ]
-            
-        let kingPiece =
-            fss [
-                BackgroundColor.orangeRed
-                Height' (pct 100)
-                Width' (pct 100)
-                BorderRadius' (pct 100)
+                      
+                  if isAttemptedDragTo then
+                      BackgroundColor.aquaMarine
             ]
             
         let pieceStyle pieceType =
             fss [
+                Height' (pct 70)
+                Width' (pct 70)
+                
                 match pieceType with
                 | King ->
                     BackgroundColor.orangeRed
@@ -140,8 +190,6 @@ module App =
                 | Clan'sMan ->
                     BackgroundColor.black
                     
-                Height' (pct 70)
-                Width' (pct 70)
                 BorderRadius' (pct 100)
                 
                 Position.Absolute
@@ -178,6 +226,12 @@ module App =
             | _ ->
                 Option.None
 
+        let allLegalMoves =
+            match currentlyDragging with
+            | Option.None -> []
+            | Some (piece, x, y) ->
+                        legalMoves boardState x y
+                        
         div [ ClassName grid ] <|
         (boardCoords |> List.map
             (fun (i,j) ->
@@ -187,7 +241,8 @@ module App =
                           (isKing'sSquare i j)
                           (isKing'sManSquare i j)
                           (isClan'sManSquare i j)
-                          (isKing'sCastle i j) )
+                          (isKing'sCastle i j)
+                          (allLegalMoves |> List.contains (i,j)) )
                       OnDragOver (fun e -> e.preventDefault())
                       OnDrop (fun e ->
                           e.preventDefault()
@@ -204,6 +259,7 @@ module App =
                             div [ ClassName (pieceStyle piece)
                                   Draggable true
                                   OnDragStart (fun e ->
+                                      dispatch <| SetDragging (piece, i, j) 
                                       e.dataTransfer.setData("dragging", serializePiecePosition piece (i,j))
                                       |> ignore)
                                   ] []
