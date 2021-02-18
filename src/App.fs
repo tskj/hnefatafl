@@ -66,7 +66,12 @@ module App =
             clan'sMen = boardCoords |> List.filter (uncurry isClan'sManSquare)
         }
 
+    type PlayerToMove =
+        | KingToMove
+        | ClanToMove
+        
     type Model = { boardState: Board
+                   playerToMove: PlayerToMove
                    currentlyDragging: (Piece * int * int) option }
 
     type Msg =
@@ -74,56 +79,76 @@ module App =
         | SetDragging of (Piece * int * int)
 
     let init () = { boardState = initBoard ()
+                    playerToMove = ClanToMove
                     currentlyDragging = Option.None }
     
     let tee f x =
         f x
         x
     
-    let legalMoves (board: Board) x y =
-        let isKing = board.king'sPosition = (x,y)
-        let occupiedSquares = board.king'sPosition :: board.king'sMen @ board.clan'sMen |> Set.ofList
-        let allPossibleMoves = boardCoords
-        let rec squaresBetween (x:int,y:int) (i,j) =
-            let deltaX = Math.Sign(i - x)
-            let deltaY = Math.Sign(j - y)
-            if deltaX = 0 && deltaY = 0 ||
-               deltaX > 0 && x >= i ||
-               deltaX < 0 && x <= i ||
-               deltaY > 0 && y >= j ||
-               deltaY < 0 && y <= j then
-                   Set.empty
-            else
-                squaresBetween (x + deltaX, y + deltaY) (i, j)
-                |> Set.add (x + deltaX, y + deltaY)
+    let legalMoves (gameState: Model) =
+        let board = gameState.boardState
+        match gameState.currentlyDragging with
+        | Option.None ->
+            List.empty
+        | Some (piece, x, y) ->
+            if (piece = King || piece = King'sMan) && gameState.playerToMove = ClanToMove
+                || piece = Clan'sMan && gameState.playerToMove = KingToMove then
+                List.empty
+            else 
+                let isKing =
+                    board.king'sPosition = (x,y)
+                let occupiedSquares =
+                    board.king'sPosition :: board.king'sMen @ board.clan'sMen |> Set.ofList
+                let allPossibleMoves =
+                    boardCoords
+                    
+                let rec squaresBetween (x:int,y:int) (i,j) =
+                    let deltaX = Math.Sign(i - x)
+                    let deltaY = Math.Sign(j - y)
+                    if deltaX = 0 && deltaY = 0 ||
+                       deltaX > 0 && x >= i ||
+                       deltaX < 0 && x <= i ||
+                       deltaY > 0 && y >= j ||
+                       deltaY < 0 && y <= j then
+                           Set.empty
+                    else
+                        squaresBetween (x + deltaX, y + deltaY) (i, j)
+                        |> Set.add (x + deltaX, y + deltaY)
+                        
+                allPossibleMoves
+                |> List.filter (fun (i,j) ->
+                    // Remove occupied squares
+                    occupiedSquares |> Set.contains (i,j) |> not)
+                |> List.filter (fun (i,j) ->
+                    // Remove all that are not horizontal or vertical 
+                    let deltaX = x - i
+                    let deltaY = y - j
+                    deltaX = 0 || deltaY = 0 )
+                |> List.filter (fun (i,j) ->
+                    // Remove all occluded squares between start and end
+                    let travelSquares = squaresBetween (x,y) (i,j)
+                    let unoccupiedTravelSquares = Set.difference travelSquares occupiedSquares
+                    unoccupiedTravelSquares = travelSquares)
+                |> List.filter (fun (i,j) ->
+                    // Remove all the King's squares for everyone but the King
+                    [(5,5);(-5,-5);(-5,5);(5,-5);(0,0)] |> List.contains (i,j) |> not
+                    || isKing )
                 
-        allPossibleMoves
-        |> List.filter (fun (i,j) ->
-            // Remove occupied squares
-            occupiedSquares |> Set.contains (i,j) |> not)
-        |> List.filter (fun (i,j) ->
-            // Remove all that are not horizontal or vertical 
-            let deltaX = x - i
-            let deltaY = y - j
-            deltaX = 0 || deltaY = 0 )
-        |> List.filter (fun (i,j) ->
-            // Remove all occluded squares between start and end
-            let travelSquares = squaresBetween (x,y) (i,j)
-            let unoccupiedTravelSquares = Set.difference travelSquares occupiedSquares
-            unoccupiedTravelSquares = travelSquares)
-        |> List.filter (fun (i,j) ->
-            // Remove all the King's squares for everyone but the King
-            [(5,5);(-5,-5);(-5,5);(5,-5);(0,0)] |> List.contains (i,j) |> not
-            || isKing )
+    let togglePlayer playerToMove =
+        match playerToMove with
+        | KingToMove -> ClanToMove
+        | ClanToMove -> KingToMove
 
     let update (msg: Msg) (model: Model): Model =
         match msg with
         | Drop (piece, (fromX, fromY), (toX, toY)) ->
-            let isLegalMove = legalMoves model.boardState fromX fromY |> List.contains (toX, toY)
+            let isLegalMove = legalMoves model |> List.contains (toX, toY)
             if isLegalMove then
                 match piece with
                 | King ->
                     { model with boardState = { model.boardState with king'sPosition = (toX, toY) }
+                                 playerToMove = togglePlayer model.playerToMove 
                                  currentlyDragging = Option.None }
                 | King'sMan ->
                     { model with boardState = {
@@ -131,6 +156,7 @@ module App =
                                                         (toX, toY) ::
                                                         model.boardState.king'sMen
                                                         |> List.filter (fun (i,j) -> not (fromX = i && fromY = j)) } 
+                                 playerToMove = togglePlayer model.playerToMove 
                                  currentlyDragging = Option.None }
                 | Clan'sMan ->
                     { model with boardState = {
@@ -138,13 +164,14 @@ module App =
                                                         (toX, toY) ::
                                                         model.boardState.clan'sMen
                                                         |> List.filter (fun (i,j) -> not (fromX = i && fromY = j)) } 
+                                 playerToMove = togglePlayer model.playerToMove 
                                  currentlyDragging = Option.None }
             else model
         | SetDragging data ->
             { model with currentlyDragging = Some data }
         | _ -> model
 
-    let render ({ boardState = boardState; currentlyDragging = currentlyDragging }: Model) (dispatch: Msg -> unit) =
+    let render (model: Model) (dispatch: Msg -> unit) =
         let grid =
             fss [ Display.Grid
                   GridTemplateColumns.Repeat(11, px 50)
@@ -226,11 +253,7 @@ module App =
             | _ ->
                 Option.None
 
-        let allLegalMoves =
-            match currentlyDragging with
-            | Option.None -> []
-            | Some (piece, x, y) ->
-                        legalMoves boardState x y
+        let allLegalMoves = legalMoves model
                         
         div [ ClassName grid ] <|
         (boardCoords |> List.map
@@ -264,13 +287,13 @@ module App =
                                       |> ignore)
                                   ] []
                             
-                        if boardState.king'sPosition = (i, j) then
+                        if model.boardState.king'sPosition = (i, j) then
                             drawPiece King
                             
-                        if boardState.king'sMen |> List.contains (i, j) then
+                        if model.boardState.king'sMen |> List.contains (i, j) then
                             drawPiece King'sMan
                             
-                        if boardState.clan'sMen |> List.contains (i, j) then
+                        if model.boardState.clan'sMen |> List.contains (i, j) then
                             drawPiece Clan'sMan
                     ]))
 
