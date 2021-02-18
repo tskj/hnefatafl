@@ -12,7 +12,7 @@ module App =
     let parse (s: string) =
         match Int32.TryParse s with
         | (true, i) -> Some i
-        | _ -> Option.None
+        | _ -> None
     
     let isDarkSquare i j = (i + j) % 2 = 0
     let isKing'sSquare i j = i = 0 && j = 0
@@ -80,7 +80,7 @@ module App =
 
     let init () = { boardState = initBoard ()
                     playerToMove = ClanToMove
-                    currentlyDragging = Option.None }
+                    currentlyDragging = None }
     
     let tee f x =
         f x
@@ -89,7 +89,7 @@ module App =
     let legalMoves (gameState: Model) =
         let board = gameState.boardState
         match gameState.currentlyDragging with
-        | Option.None ->
+        | None ->
             List.empty
         | Some (piece, x, y) ->
             if (piece = King || piece = King'sMan) && gameState.playerToMove = ClanToMove
@@ -149,7 +149,7 @@ module App =
                 | King ->
                     { model with boardState = { model.boardState with king'sPosition = (toX, toY) }
                                  playerToMove = togglePlayer model.playerToMove 
-                                 currentlyDragging = Option.None }
+                                 currentlyDragging = None }
                 | King'sMan ->
                     { model with boardState = {
                                 model.boardState with king'sMen =
@@ -157,7 +157,7 @@ module App =
                                                         model.boardState.king'sMen
                                                         |> List.filter (fun (i,j) -> not (fromX = i && fromY = j)) } 
                                  playerToMove = togglePlayer model.playerToMove 
-                                 currentlyDragging = Option.None }
+                                 currentlyDragging = None }
                 | Clan'sMan ->
                     { model with boardState = {
                                 model.boardState with clan'sMen =
@@ -165,7 +165,7 @@ module App =
                                                         model.boardState.clan'sMen
                                                         |> List.filter (fun (i,j) -> not (fromX = i && fromY = j)) } 
                                  playerToMove = togglePlayer model.playerToMove 
-                                 currentlyDragging = Option.None }
+                                 currentlyDragging = None }
             else model
         | SetDragging data ->
             { model with currentlyDragging = Some data }
@@ -249,9 +249,9 @@ module App =
                     Some (King'sMan, i, j)
                 | "ClanMan", Some i, Some j ->
                     Some (Clan'sMan, i, j)
-                | _ -> Option.None
+                | _ -> None
             | _ ->
-                Option.None
+                None
 
         let allLegalMoves = legalMoves model
                         
