@@ -127,11 +127,17 @@ module App =
                 BorderRadius' (pct 100)
             ]
             
-        let piece king'sMan =
+        let pieceStyle pieceType =
             fss [
-                if king'sMan then
+                match pieceType with
+                | King ->
                     BackgroundColor.orangeRed
-                else
+                    Height' (pct 100)
+                    Width' (pct 100)
+                    BorderRadius' (pct 100)
+                | King'sMan ->
+                    BackgroundColor.orangeRed
+                | Clan'sMan ->
                     BackgroundColor.black
                     
                 Height' (pct 70)
@@ -194,29 +200,22 @@ module App =
                                         ) |> ignore)
                 ]
                     [
-                        if boardState.king'sPosition = (i, j) then
-                            div [ ClassName kingPiece
+                        let drawPiece piece = 
+                            div [ ClassName (pieceStyle piece)
                                   Draggable true
                                   OnDragStart (fun e ->
-                                      e.dataTransfer.setData("dragging", serializePiecePosition King (i,j))
+                                      e.dataTransfer.setData("dragging", serializePiecePosition piece (i,j))
                                       |> ignore)
                                   ] []
                             
+                        if boardState.king'sPosition = (i, j) then
+                            drawPiece King
+                            
                         if boardState.king'sMen |> List.contains (i, j) then
-                            div [ ClassName (piece true)
-                                  Draggable true
-                                  OnDragStart (fun e ->
-                                      e.dataTransfer.setData("dragging", serializePiecePosition King'sMan (i,j))
-                                      |> ignore)
-                                   ] []
+                            drawPiece King'sMan
                             
                         if boardState.clan'sMen |> List.contains (i, j) then
-                            div [ ClassName (piece false)
-                                  Draggable true
-                                  OnDragStart (fun e ->
-                                      e.dataTransfer.setData("dragging", serializePiecePosition Clan'sMan (i,j))
-                                      |> ignore)
-                                   ] []
+                            drawPiece Clan'sMan
                     ]))
 
     Program.mkSimple init update render
