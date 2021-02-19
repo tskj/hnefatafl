@@ -42,7 +42,7 @@ module App =
           (5, 2) ]
         |> List.contains (i', j')
 
-    let isKing'sCastle i j = (i = 5 || i = -5) && (j = 5 || j = -5)
+    let isKing'sCastle (i,j) = (i = 5 || i = -5) && (j = 5 || j = -5)
     
     let boardCoords =
         [-5 .. 5] |> List.collect
@@ -67,13 +67,14 @@ module App =
             clan'sMen = boardCoords |> Set.filter (uncurry isClan'sManSquare)
         }
 
-    type PlayerToMove =
-        | KingToMove
-        | ClanToMove
+    type Player =
+        | KingSide
+        | ClanSide
         
         
     type Model = { boardState: Board
-                   playerToMove: PlayerToMove
+                   winner: Player option
+                   playerToMove: Player
                    currentlyDragging: (Piece * int * int) option }
 
     type Msg =
@@ -81,9 +82,11 @@ module App =
         | DragStart of (Piece * int * int)
         | DragEnd
         | Capture of int * int
+        | CheckWinner
 
     let init () = { boardState = initBoard ()
-                    playerToMove = ClanToMove
+                    winner = None
+                    playerToMove = ClanSide
                     currentlyDragging = None }
                   , Cmd.none
                     
@@ -95,12 +98,14 @@ module App =
 
     let legalMoves (gameState: Model) =
         let board = gameState.boardState
-        match gameState.currentlyDragging with
-        | None ->
+        match gameState.currentlyDragging, gameState.winner with
+        | None, _ ->
             Set.empty
-        | Some (piece, x, y) ->
-            if (piece = King || piece = King'sMan) && gameState.playerToMove = ClanToMove
-                || piece = Clan'sMan && gameState.playerToMove = KingToMove then
+        | _, Some _ ->
+            Set.empty
+        | Some (piece, x, y), _ ->
+            if (piece = King || piece = King'sMan) && gameState.playerToMove = ClanSide
+                || piece = Clan'sMan && gameState.playerToMove = KingSide then
                 Set.empty
             else 
                 let isKing =
@@ -174,8 +179,8 @@ module App =
                 
     let togglePlayer playerToMove =
         match playerToMove with
-        | KingToMove -> ClanToMove
-        | ClanToMove -> KingToMove
+        | KingSide -> ClanSide
+        | ClanSide -> KingSide
     
     let capture (board: Board) (i,j) =
         let horizontalAttackVector =  [(i+1,j);(i-1,j)] |> Set.ofList
@@ -197,7 +202,11 @@ module App =
                 | King ->
                     { model with boardState = { model.boardState with king'sPosition = (toX, toY) }
                                  playerToMove = togglePlayer model.playerToMove }
-                    , Cmd.batch [DragEnd |> Cmd.ofMsg; Capture (toX, toY) |> Cmd.ofMsg]
+                    , Cmd.batch [
+                        DragEnd |> Cmd.ofMsg
+                        Capture (toX, toY) |> Cmd.ofMsg
+                        CheckWinner |> Cmd.ofMsg
+                    ]
                 | King'sMan ->
                     { model with boardState = {
                                 model.boardState with king'sMen =
@@ -205,7 +214,11 @@ module App =
                                                         <| model.boardState.king'sMen
                                                         |> Set.filter (fun (i,j) -> not (fromX = i && fromY = j)) } 
                                  playerToMove = togglePlayer model.playerToMove }
-                    , Cmd.batch [DragEnd |> Cmd.ofMsg; Capture (toX, toY) |> Cmd.ofMsg]
+                    , Cmd.batch [
+                        DragEnd |> Cmd.ofMsg
+                        Capture (toX, toY) |> Cmd.ofMsg
+                        CheckWinner |> Cmd.ofMsg
+                    ]
                 | Clan'sMan ->
                     { model with boardState = {
                                 model.boardState with clan'sMen =
@@ -213,7 +226,11 @@ module App =
                                                         <| model.boardState.clan'sMen
                                                         |> Set.filter (fun (i,j) -> not (fromX = i && fromY = j)) } 
                                  playerToMove = togglePlayer model.playerToMove }
-                    , Cmd.batch [DragEnd |> Cmd.ofMsg; Capture (toX, toY) |> Cmd.ofMsg]
+                    , Cmd.batch [
+                        DragEnd |> Cmd.ofMsg
+                        Capture (toX, toY) |> Cmd.ofMsg
+                        CheckWinner |> Cmd.ofMsg
+                    ]
             else model
                     , Cmd.none
 
@@ -231,6 +248,12 @@ module App =
                         model.boardState with king'sMen = (model.boardState.king'sMen |> Set.difference) capturedNeighbours
                                               clan'sMen = (model.boardState.clan'sMen |> Set.difference) capturedNeighbours
             } }
+            , Cmd.none
+        
+        | CheckWinner ->
+            let isKingWinner = isKing'sCastle model.boardState.king'sPosition
+            let isClanWinner = enemyNeighbours model.boardState model.boardState.king'sPosition |> Set.count = 4
+            { model with winner = if isKingWinner then Some KingSide else if isClanWinner then Some ClanSide else None }
             , Cmd.none
             
         | _ -> model
@@ -329,7 +352,7 @@ module App =
                           (isKing'sSquare i j)
                           (isKing'sManSquare i j)
                           (isClan'sManSquare i j)
-                          (isKing'sCastle i j)
+                          (isKing'sCastle (i,j))
                           (allLegalMoves |> Set.contains (i,j)) )
                       OnDragOver (fun e -> e.preventDefault())
                       OnDrop (fun e ->
