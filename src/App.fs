@@ -48,6 +48,7 @@ module App =
         [-5 .. 5] |> List.collect
             (fun i -> [-5 .. 5] |> List.map
                         (fun j -> i,j))
+        |> Set.ofList
     
     type Piece =
         | King
@@ -56,50 +57,58 @@ module App =
         
     type Board = {
         king'sPosition: int * int
-        king'sMen: (int * int) list
-        clan'sMen: (int * int) list
+        king'sMen: (int * int) Set
+        clan'sMen: (int * int) Set
     }
     
     let initBoard () = {
             king'sPosition = 0,0
-            king'sMen = boardCoords |> List.filter (uncurry isKing'sManSquare)
-            clan'sMen = boardCoords |> List.filter (uncurry isClan'sManSquare)
+            king'sMen = boardCoords |> Set.filter (uncurry isKing'sManSquare)
+            clan'sMen = boardCoords |> Set.filter (uncurry isClan'sManSquare)
         }
 
     type PlayerToMove =
         | KingToMove
         | ClanToMove
         
+        
     type Model = { boardState: Board
                    playerToMove: PlayerToMove
                    currentlyDragging: (Piece * int * int) option }
 
     type Msg =
-        | Drop of (Piece * (int * int) * (int * int))
-        | SetDragging of (Piece * int * int)
+        | Move of (Piece * (int * int) * (int * int))
+        | DragStart of (Piece * int * int)
+        | DragEnd
+        | Capture of int * int
 
     let init () = { boardState = initBoard ()
                     playerToMove = ClanToMove
                     currentlyDragging = None }
+                  , Cmd.none
+                    
     
     let tee f x =
         f x
         x
     
+
     let legalMoves (gameState: Model) =
         let board = gameState.boardState
         match gameState.currentlyDragging with
         | None ->
-            List.empty
+            Set.empty
         | Some (piece, x, y) ->
             if (piece = King || piece = King'sMan) && gameState.playerToMove = ClanToMove
                 || piece = Clan'sMan && gameState.playerToMove = KingToMove then
-                List.empty
+                Set.empty
             else 
                 let isKing =
                     board.king'sPosition = (x,y)
                 let occupiedSquares =
-                    board.king'sPosition :: board.king'sMen @ board.clan'sMen |> Set.ofList
+                   board.king'sMen
+                   |> Set.add board.king'sPosition
+                   |> Set.union board.clan'sMen
                 let allPossibleMoves =
                     boardCoords
                     
@@ -117,59 +126,115 @@ module App =
                         |> Set.add (x + deltaX, y + deltaY)
                         
                 allPossibleMoves
-                |> List.filter (fun (i,j) ->
+                |> Set.filter (fun (i,j) ->
                     // Remove occupied squares
                     occupiedSquares |> Set.contains (i,j) |> not)
-                |> List.filter (fun (i,j) ->
+                |> Set.filter (fun (i,j) ->
                     // Remove all that are not horizontal or vertical 
                     let deltaX = x - i
                     let deltaY = y - j
                     deltaX = 0 || deltaY = 0 )
-                |> List.filter (fun (i,j) ->
+                |> Set.filter (fun (i,j) ->
                     // Remove all occluded squares between start and end
                     let travelSquares = squaresBetween (x,y) (i,j)
                     let unoccupiedTravelSquares = Set.difference travelSquares occupiedSquares
                     unoccupiedTravelSquares = travelSquares)
-                |> List.filter (fun (i,j) ->
+                |> Set.filter (fun (i,j) ->
                     // Remove all the King's squares for everyone but the King
                     [(5,5);(-5,-5);(-5,5);(5,-5);(0,0)] |> List.contains (i,j) |> not
                     || isKing )
+
+
+    let enemyNeighbours (board: Board) (i,j) =
+            let neighbours = [(i,j+1);(i,j-1);(i+1,j);(i-1,j)] |> Set.ofList
+    
+            let king'sPiece =
+                board.king'sMen
+                |> Set.add board.king'sPosition 
+                |> Set.contains (i,j)
+                
+            let clan'sPiece =
+                board.clan'sMen
+                |> Set.contains (i,j)
+                       
+            if king'sPiece then
+                board.clan'sMen
+                |> Set.filter
+                       (fun x -> neighbours
+                                 |> Set.contains x)
+            else if clan'sPiece then
+                board.king'sMen
+                |> Set.add board.king'sPosition 
+                |> Set.filter
+                       (fun x -> neighbours
+                                 |> Set.contains x)
+            else
+                Set.empty
+
                 
     let togglePlayer playerToMove =
         match playerToMove with
         | KingToMove -> ClanToMove
         | ClanToMove -> KingToMove
+    
+    let capture (board: Board) (i,j) =
+        let horizontalAttackVector =  [(i+1,j);(i-1,j)] |> Set.ofList
+        let verticalAttackVector =    [(i,j+1);(i,j-1)] |> Set.ofList
+        
+        let enemyNeighbours' = enemyNeighbours board (i,j) 
+        
+        let horizontalAttack = (horizontalAttackVector |> Set.isSubset) enemyNeighbours'
+        let verticalAttack = (verticalAttackVector |> Set.isSubset) enemyNeighbours'
+        
+        horizontalAttack || verticalAttack
 
-    let update (msg: Msg) (model: Model): Model =
+    let update (msg: Msg) (model: Model): Model * Cmd<Msg> =
         match msg with
-        | Drop (piece, (fromX, fromY), (toX, toY)) ->
-            let isLegalMove = legalMoves model |> List.contains (toX, toY)
+        | Move (piece, (fromX, fromY), (toX, toY)) ->
+            let isLegalMove = legalMoves model |> Set.contains (toX, toY)
             if isLegalMove then
                 match piece with
                 | King ->
                     { model with boardState = { model.boardState with king'sPosition = (toX, toY) }
-                                 playerToMove = togglePlayer model.playerToMove 
-                                 currentlyDragging = None }
+                                 playerToMove = togglePlayer model.playerToMove }
+                    , Cmd.batch [DragEnd |> Cmd.ofMsg; Capture (toX, toY) |> Cmd.ofMsg]
                 | King'sMan ->
                     { model with boardState = {
                                 model.boardState with king'sMen =
-                                                        (toX, toY) ::
-                                                        model.boardState.king'sMen
-                                                        |> List.filter (fun (i,j) -> not (fromX = i && fromY = j)) } 
-                                 playerToMove = togglePlayer model.playerToMove 
-                                 currentlyDragging = None }
+                                                        Set.add (toX, toY)
+                                                        <| model.boardState.king'sMen
+                                                        |> Set.filter (fun (i,j) -> not (fromX = i && fromY = j)) } 
+                                 playerToMove = togglePlayer model.playerToMove }
+                    , Cmd.batch [DragEnd |> Cmd.ofMsg; Capture (toX, toY) |> Cmd.ofMsg]
                 | Clan'sMan ->
                     { model with boardState = {
                                 model.boardState with clan'sMen =
-                                                        (toX, toY) ::
-                                                        model.boardState.clan'sMen
-                                                        |> List.filter (fun (i,j) -> not (fromX = i && fromY = j)) } 
-                                 playerToMove = togglePlayer model.playerToMove 
-                                 currentlyDragging = None }
+                                                        Set.add (toX, toY) 
+                                                        <| model.boardState.clan'sMen
+                                                        |> Set.filter (fun (i,j) -> not (fromX = i && fromY = j)) } 
+                                 playerToMove = togglePlayer model.playerToMove }
+                    , Cmd.batch [DragEnd |> Cmd.ofMsg; Capture (toX, toY) |> Cmd.ofMsg]
             else model
-        | SetDragging data ->
+                    , Cmd.none
+
+        | DragStart data ->
             { model with currentlyDragging = Some data }
+                    , Cmd.none
+        | DragEnd ->
+            { model with currentlyDragging = None }
+            , Cmd.none
+        | Capture (i,j) ->
+            let enemyNeighbours' = enemyNeighbours model.boardState (i,j)
+            let capturedNeighbours = enemyNeighbours' |> Set.filter (capture model.boardState)
+            
+            { model with boardState = {
+                        model.boardState with king'sMen = (model.boardState.king'sMen |> Set.difference) capturedNeighbours
+                                              clan'sMen = (model.boardState.clan'sMen |> Set.difference) capturedNeighbours
+            } }
+            , Cmd.none
+            
         | _ -> model
+                    , Cmd.none
 
     let render (model: Model) (dispatch: Msg -> unit) =
         let grid =
@@ -256,7 +321,7 @@ module App =
         let allLegalMoves = legalMoves model
                         
         div [ ClassName grid ] <|
-        (boardCoords |> List.map
+        (boardCoords |> List.ofSeq |> List.map
             (fun (i,j) ->
                 div [ ClassName(
                         square
@@ -265,7 +330,7 @@ module App =
                           (isKing'sManSquare i j)
                           (isClan'sManSquare i j)
                           (isKing'sCastle i j)
-                          (allLegalMoves |> List.contains (i,j)) )
+                          (allLegalMoves |> Set.contains (i,j)) )
                       OnDragOver (fun e -> e.preventDefault())
                       OnDrop (fun e ->
                           e.preventDefault()
@@ -273,7 +338,7 @@ module App =
                           |> parsePiecePosition
                           |> Option.map (fun (piece, x, y) ->
                                                 (piece, (x, y), (i, j))
-                                                    |> Drop
+                                                    |> Move
                                                     |> dispatch
                                         ) |> ignore)
                 ]
@@ -282,7 +347,7 @@ module App =
                             div [ ClassName (pieceStyle piece)
                                   Draggable true
                                   OnDragStart (fun e ->
-                                      dispatch <| SetDragging (piece, i, j) 
+                                      dispatch <| DragStart (piece, i, j) 
                                       e.dataTransfer.setData("dragging", serializePiecePosition piece (i,j))
                                       |> ignore)
                                   ] []
@@ -290,13 +355,13 @@ module App =
                         if model.boardState.king'sPosition = (i, j) then
                             drawPiece King
                             
-                        if model.boardState.king'sMen |> List.contains (i, j) then
+                        if model.boardState.king'sMen |> Set.contains (i, j) then
                             drawPiece King'sMan
                             
-                        if model.boardState.clan'sMen |> List.contains (i, j) then
+                        if model.boardState.clan'sMen |> Set.contains (i, j) then
                             drawPiece Clan'sMan
                     ]))
 
-    Program.mkSimple init update render
+    Program.mkProgram init update render
     |> Program.withReactSynchronous "elmish-app"
     |> Program.run
