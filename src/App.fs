@@ -1,5 +1,7 @@
 ﻿namespace Docs
 
+open Browser.Types
+
 module App =
     open Elmish
     open Elmish.React
@@ -7,7 +9,8 @@ module App =
     open Fable.React.Props
     open Fss
     open System
-    
+    open Browser
+
     let uncurry f (x,y) = f x y
     let parse (s: string) =
         match Int32.TryParse s with
@@ -75,7 +78,8 @@ module App =
     type Model = { boardState: Board
                    winner: Player option
                    playerToMove: Player
-                   currentlyDragging: (Piece * int * int) option }
+                   currentlyDragging: (Piece * int * int) option
+                   mousePos: double * double }
 
     type Msg =
         | Move of (Piece * (int * int) * (int * int))
@@ -83,11 +87,13 @@ module App =
         | DragEnd
         | Capture of int * int
         | CheckWinner
+        | MouseMove of double * double
 
     let init () = { boardState = initBoard ()
                     winner = None
                     playerToMove = ClanSide
-                    currentlyDragging = None }
+                    currentlyDragging = None
+                    mousePos = 0., 0. }
                   , Cmd.none
                     
     
@@ -256,6 +262,13 @@ module App =
             { model with winner = if isKingWinner then Some KingSide else if isClanWinner then Some ClanSide else None }
             , Cmd.none
             
+        | MouseMove (x,y) ->
+            match model.currentlyDragging with
+            | None -> model, Cmd.none
+            | Some _ ->
+                { model with mousePos = (x,y)}
+                , Cmd.none
+            
         | _ -> model
                     , Cmd.none
 
@@ -289,7 +302,7 @@ module App =
                       BackgroundColor.aquaMarine
             ]
             
-        let pieceStyle pieceType =
+        let pieceStyle pieceType mousePos =
             fss [
                 Height' (pct 70)
                 Width' (pct 70)
@@ -304,7 +317,7 @@ module App =
                     BackgroundColor.orangeRed
                 | Clan'sMan ->
                     BackgroundColor.black
-                    
+                
                 BorderRadius' (pct 100)
                 
                 Position.Absolute
@@ -314,6 +327,13 @@ module App =
                 ]
                 Left' (pct 50)
                 Top' (pct 50)
+                
+                match mousePos with
+                | None -> ()
+                | Some (x,y) ->
+                    Left' (px x)
+                    Top' (px y)
+                    
             ]
             
         let serializePiecePosition piece (i,j) =
@@ -346,7 +366,8 @@ module App =
         div [ ClassName grid ] <|
         (boardCoords |> List.ofSeq |> List.map
             (fun (i,j) ->
-                div [ ClassName(
+                div [ Key $"{i},{j}"
+                      ClassName(
                         square
                           (isDarkSquare i j)
                           (isKing'sSquare i j)
@@ -366,12 +387,17 @@ module App =
                                         ) |> ignore)
                 ]
                     [
+                        let (mouseX, mouseY) = model.mousePos
+                        let (draggingI, draggingJ) = match model.currentlyDragging with
+                                                        | Some (piece, i, j) -> i,j
+                                                        | None -> 0,0
                         let drawPiece piece = 
-                            div [ ClassName (pieceStyle piece)
+                            div [ //Key $"{}:{}"
+                                  ClassName (pieceStyle piece (if model.currentlyDragging <> None && draggingI = i && draggingJ = j then Some (int mouseX, int mouseY) else None))
                                   Draggable true
                                   OnDragStart (fun e ->
                                       dispatch <| DragStart (piece, i, j) 
-                                      e.dataTransfer.setData("dragging", serializePiecePosition piece (i,j))
+                                      //e.dataTransfer.setData("dragging", serializePiecePosition piece (i,j))
                                       |> ignore)
                                   ] []
                             
@@ -384,7 +410,20 @@ module App =
                         if model.boardState.clan'sMen |> Set.contains (i, j) then
                             drawPiece Clan'sMan
                     ]))
+        
+    let onMouseMove dispatch (e:Browser.Types.Event) =
+        let e = e :?> MouseEvent
+        MouseMove (e.clientX, e.clientY) |> dispatch
+        
+    let sub initial =
+        let sub' dispatch =
+            //window.onmousemove onMouseMove
+            document.addEventListener("mousemove", onMouseMove dispatch)
+            ()
+        Cmd.ofSub sub'
+        
 
     Program.mkProgram init update render
+    |> Program.withSubscription sub
     |> Program.withReactSynchronous "elmish-app"
     |> Program.run
