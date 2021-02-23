@@ -25,14 +25,14 @@ module App =
             | None -> [])
         >> Set.ofList
 
-    let replaceGuy (i, j) guy (guys: (int * int) option list) =
+    let replaceGuy (i, j) guy guys =
         guys
         |> List.map
             (function
             | Some (x, y) when x = i && y = j -> guy
             | x -> x)
 
-    let removeGuys (guys: (int * int) Set) (fromGuys: (int * int) option list): (int * int) option list =
+    let removeGuys guys fromGuys =
         fromGuys
         |> List.map
             (function
