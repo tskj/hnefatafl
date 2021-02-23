@@ -67,11 +67,13 @@ module App =
           (5, 2) ]
         |> List.contains (i', j')
 
-    let isKing'sCastle (i, j) = (i = 5 || i = -5) && (j = 5 || j = -5)
+    let boardSize = 11
+    let isKing'sCastle (i, j) = (i = (boardSize / 2) || i = -(boardSize / 2)) && (j = (boardSize / 2) || j = -(boardSize / 2))
 
     let boardCoords =
-        [ -5 .. 5 ]
-        |> List.collect (fun i -> [ -5 .. 5 ] |> List.map (fun j -> i, j))
+        [ -(boardSize / 2) .. (boardSize / 2) ]
+        |> List.collect (fun i -> [ -(boardSize / 2) .. (boardSize / 2) ]
+                                  |> List.map (fun j -> i, j))
         |> Set.ofList
 
     type Piece =
@@ -339,10 +341,18 @@ module App =
         | _ -> model, Cmd.none
 
     let render (model: Model) (dispatch: Msg -> unit) =
+        let squareSize = 50
         let grid =
             fss [ Display.Grid
-                  GridTemplateColumns.Repeat(11, px 50)
-                  GridTemplateRows.Repeat(11, px 50) ]
+                  Position.Absolute
+                  GridTemplateColumns.Repeat(11, px squareSize)
+                  GridTemplateRows.Repeat(11, px squareSize) ]
+            
+        let gridSize =
+            fss [ Position.Absolute
+                  Width' (px (11 * squareSize))
+                  Height' (px (11 * squareSize))
+            ]
 
         let square dark king'sSquare king'sManSquare clan'sManSquare isKing'sCastle isAttemptedDragTo =
             fss [ Position.Relative
@@ -367,15 +377,18 @@ module App =
                   if isAttemptedDragTo then
                       BackgroundColor.aquaMarine ]
 
-        let pieceStyle pieceType mousePos =
-            fss [ Height'(pct 70)
-                  Width'(pct 70)
+        let pieceStyle pieceType (i,j) mousePos =
+            let i = boardSize / 2 + i
+            let j = boardSize / 2 + j
+            let percent percentage x = percentage * x / 100
+            fss [ Height' (px (percent 70 squareSize))
+                  Width' (px (percent 70 squareSize))
 
                   match pieceType with
                   | King ->
                       BackgroundColor.orangeRed
-                      Height'(pct 100)
-                      Width'(pct 100)
+                      Height' (px squareSize)
+                      Width' (px squareSize)
                       BorderRadius'(pct 100)
                   | King'sMan -> BackgroundColor.orangeRed
                   | Clan'sMan -> BackgroundColor.black
@@ -383,17 +396,16 @@ module App =
                   BorderRadius'(pct 100)
 
                   Position.Absolute
-                  Transforms [ Transform.TranslateX(pct -50)
-                               Transform.TranslateY(pct -50) ]
-                  Left'(pct 50)
-                  Top'(pct 50)
+                  //Transforms [ Transform.TranslateX(pct -50)
+                               //Transform.TranslateY(pct -50) ]
+                  Left' (px (j * squareSize))
+                  Top' (px (i * squareSize))
 
                   match mousePos with
                   | None -> ()
                   | Some (x, y) ->
                       Left'(px x)
                       Top'(px y)
-
                    ]
 
         let serializePiecePosition piece (i, j) =
@@ -420,70 +432,78 @@ module App =
             | _ -> None
 
         let allLegalMoves = legalMoves model
+        
+        let draw piece =
+           function
+           | _, None-> fragment [] []
+           | index, Some (i,j)->
+           let (mouseX, mouseY) = model.mousePos
 
-        div [ ClassName grid ]
-        <| (boardCoords
-            |> List.ofSeq
-            |> List.map
-                (fun (i, j) ->
-                    div [ Key $"{i},{j}"
-                          ClassName(
-                              square
-                                  (isDarkSquare i j)
-                                  (isKing'sSquare i j)
-                                  (isKing'sManSquare i j)
-                                  (isClan'sManSquare i j)
-                                  (isKing'sCastle (i, j))
-                                  (allLegalMoves |> Set.contains (i, j))
-                          )
-                          OnDragOver(fun e -> e.preventDefault ())
-                          OnDrop
-                              (fun e ->
-                                  e.preventDefault ()
+           let (draggingI, draggingJ) =
+               match model.currentlyDragging with
+               | Some (piece, i, j) -> i, j
+               | None -> 0, 0
 
-                                  e.dataTransfer.getData ("dragging")
-                                  |> parsePiecePosition
-                                  |> Option.map (fun (piece, x, y) -> (piece, (x, y), (i, j)) |> Move |> dispatch)
-                                  |> ignore) ] [
-                        let (mouseX, mouseY) = model.mousePos
+           div [ Key $"{piece}:{index}"
+                 ClassName(
+                     pieceStyle
+                         piece (i,j)
+                         (if model.currentlyDragging <> None
+                             && draggingI = i
+                             && draggingJ = j then
+                              Some(int mouseX, int mouseY)
+                          else
+                              None)
+                 )
+                 Draggable true
+                 OnDragStart
+                     (fun e ->
+                         dispatch <| DragStart(piece, i, j)
+                         //e.dataTransfer.setData("dragging", serializePiecePosition piece (i,j))
+                         |> ignore) ] []
 
-                        let (draggingI, draggingJ) =
-                            match model.currentlyDragging with
-                            | Some (piece, i, j) -> i, j
-                            | None -> 0, 0
+        fragment [] [
+            div [ ClassName grid ]
+            <| (boardCoords
+                |> List.ofSeq
+                |> List.map
+                    (fun (i, j) ->
+                        div [ Key $"{i},{j}"
+                              ClassName(
+                                  square
+                                      (isDarkSquare i j)
+                                      (isKing'sSquare i j)
+                                      (isKing'sManSquare i j)
+                                      (isClan'sManSquare i j)
+                                      (isKing'sCastle (i, j))
+                                      (allLegalMoves |> Set.contains (i, j))
+                              )
+                              OnDragOver(fun e -> e.preventDefault ())
+                              OnDrop
+                                  (fun e ->
+                                      e.preventDefault ()
 
-                        let drawPiece piece =
-                            div [ //Key $"{}:{}"
-                                  ClassName(
-                                      pieceStyle
-                                          piece
-                                          (if model.currentlyDragging <> None
-                                              && draggingI = i
-                                              && draggingJ = j then
-                                               Some(int mouseX, int mouseY)
-                                           else
-                                               None)
-                                  )
-                                  Draggable true
-                                  OnDragStart
-                                      (fun e ->
-                                          dispatch <| DragStart(piece, i, j)
-                                          //e.dataTransfer.setData("dragging", serializePiecePosition piece (i,j))
-                                          |> ignore) ] []
-
-                        if model.boardState.king'sPosition = (i, j) then
-                            drawPiece King
-
-                        if model.boardState.king'sMen
-                           |> toSet
-                           |> Set.contains (i, j) then
-                            drawPiece King'sMan
-
-                        if model.boardState.clan'sMen
-                           |> toSet
-                           |> Set.contains (i, j) then
-                            drawPiece Clan'sMan
-                    ]))
+                                      e.dataTransfer.getData ("dragging")
+                                      |> parsePiecePosition
+                                      |> Option.map (fun (piece, x, y) -> (piece, (x, y), (i, j)) |> Move |> dispatch)
+                                      |> ignore) ] [] ))
+            
+            div [ ClassName gridSize ] 
+                [draw King ( 0, Some model.boardState.king'sPosition )]
+                
+            div [ ClassName gridSize ] 
+                (model.boardState.king'sMen
+                    |> List.zip [0..100]
+                    |> List.map
+                        (draw King'sMan))
+                                  
+            div [ ClassName gridSize ] 
+                (model.boardState.clan'sMen
+                    |> List.zip [0..100]
+                    |> List.map
+                        (draw Clan'sMan))
+                
+            ]
 
     let onMouseMove dispatch (e: Browser.Types.Event) =
         let e = e :?> MouseEvent
