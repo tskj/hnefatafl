@@ -108,13 +108,13 @@ module App =
         { boardState: Board
           winner: Player option
           playerToMove: Player
-          currentlyDragging: (Piece * int * int) option
+          currentlyDragging: (int * int) option
           mousePos: double * double }
 
     type Msg =
-        | Move of (Piece * (int * int) * (int * int))
-        | DragStart of (Piece * int * int)
-        | DragEnd
+        | Move of (int * int) * (int * int)
+        | DragStart of (int * int)
+        | DragEnd of (int * int) option
         | Capture of int * int
         | CheckWinner
         | MouseMove of double * double
@@ -131,22 +131,34 @@ module App =
     let tee f x =
         f x
         x
+        
+    let getPiece (i,j) (board: Board) =
+        if board.king'sPosition = (i,j) then
+            Some King
+        else if board.king'sMen |> List.contains (Some (i,j)) then
+            Some King'sMan
+        else if board.clan'sMen |> List.contains (Some (i,j)) then
+            Some Clan'sMan
+        else
+            None
 
-
-    let legalMoves (gameState: Model) =
+    let legalMoves (fromX, fromY) (gameState: Model) =
         let board = gameState.boardState
+        let pieceToMove = board |> getPiece (fromX, fromY)
 
-        match gameState.currentlyDragging, gameState.winner with
-        | None, _ -> Set.empty
-        | _, Some _ -> Set.empty
-        | Some (piece, x, y), _ ->
+        match (fromX, fromY), pieceToMove, gameState.winner with
+        | _, _, Some _ -> Set.empty
+        | _, None, _ -> Set.empty
+        | (x, y), Some piece, _ ->
             if (piece = King || piece = King'sMan)
                && gameState.playerToMove = ClanSide
                || piece = Clan'sMan
-                  && gameState.playerToMove = KingSide then
+                  && gameState.playerToMove = KingSide 
+            then
                 Set.empty
             else
-                let isKing = board.king'sPosition = (x, y)
+                let isKing =
+                    piece = King
 
                 let occupiedSquares =
                     board.king'sMen
@@ -254,43 +266,39 @@ module App =
 
     let update (msg: Msg) (model: Model): Model * Cmd<Msg> =
         match msg with
-        | Move (piece, (fromX, fromY), (toX, toY)) ->
+        | Move ((fromX, fromY), (toX, toY)) ->
             let isLegalMove =
-                legalMoves model |> Set.contains (toX, toY)
+                legalMoves (fromX, fromY) model |> Set.contains (toX, toY)
 
             if isLegalMove then
-                match piece with
-                | King ->
+                match model.boardState |> getPiece (fromX,fromY) with
+                | Some King ->
                     { model with
                           boardState =
                               { model.boardState with
-                                    king'sPosition = (toX, toY) }
-                          playerToMove = togglePlayer model.playerToMove },
-                    Cmd.batch [ DragEnd |> Cmd.ofMsg
-                                Capture(toX, toY) |> Cmd.ofMsg
-                                CheckWinner |> Cmd.ofMsg ]
-                | King'sMan ->
+                                    king'sPosition = (toX, toY) } }
+                    , Cmd.batch [ Capture(toX, toY) |> Cmd.ofMsg
+                                  CheckWinner |> Cmd.ofMsg ]
+                | Some King'sMan ->
                     { model with
                           boardState =
                               { model.boardState with
                                     king'sMen =
                                         model.boardState.king'sMen
-                                        |> replaceGuy (fromX, fromY) (Some(toX, toY)) }
-                          playerToMove = togglePlayer model.playerToMove },
-                    Cmd.batch [ DragEnd |> Cmd.ofMsg
-                                Capture(toX, toY) |> Cmd.ofMsg
-                                CheckWinner |> Cmd.ofMsg ]
-                | Clan'sMan ->
+                                        |> replaceGuy (fromX, fromY) (Some(toX, toY)) } }
+                    , Cmd.batch [ Capture(toX, toY) |> Cmd.ofMsg
+                                  CheckWinner |> Cmd.ofMsg ]
+                | Some Clan'sMan ->
                     { model with
                           boardState =
                               { model.boardState with
                                     clan'sMen =
                                         model.boardState.clan'sMen
-                                        |> replaceGuy (fromX, fromY) (Some(toX, toY)) }
-                          playerToMove = togglePlayer model.playerToMove },
-                    Cmd.batch [ DragEnd |> Cmd.ofMsg
-                                Capture(toX, toY) |> Cmd.ofMsg
-                                CheckWinner |> Cmd.ofMsg ]
+                                        |> replaceGuy (fromX, fromY) (Some(toX, toY)) } }
+                    , Cmd.batch [ Capture(toX, toY) |> Cmd.ofMsg
+                                  CheckWinner |> Cmd.ofMsg ]
+                | _ ->
+                    model, Cmd.none
             else
                 model, Cmd.none
 
@@ -298,7 +306,16 @@ module App =
             { model with
                   currentlyDragging = Some data },
             Cmd.none
-        | DragEnd -> { model with currentlyDragging = None }, Cmd.none
+        | DragEnd pos ->
+            let stoppedDragging = 
+                { model with currentlyDragging = None }
+            match model.currentlyDragging, pos with
+            | Some (fromX, fromY), Some (toX, toY) ->
+                stoppedDragging
+                , (Move ((fromX,fromY), (toX, toY)) |> Cmd.ofMsg)
+            | _ ->
+                stoppedDragging
+                , Cmd.none
         | Capture (i, j) ->
             let enemyNeighbours' = enemyNeighbours model.boardState (i, j)
 
@@ -311,10 +328,10 @@ module App =
                       { model.boardState with
                             king'sMen =
                                 model.boardState.king'sMen
-                                |> replaceGuy (i, j) None
+                                |> removeGuys capturedNeighbours
                             clan'sMen =
                                 model.boardState.clan'sMen
-                                |> removeGuys capturedNeighbours //(model.boardState.clan'sMen |> toSet |> Set.difference) capturedNeighbours
+                                |> removeGuys capturedNeighbours 
                       } },
             Cmd.none
 
@@ -327,6 +344,7 @@ module App =
                 |> Set.count = 4
 
             { model with
+                  playerToMove = togglePlayer model.playerToMove
                   winner =
                       if isKingWinner then Some KingSide
                       else if isClanWinner then Some ClanSide
@@ -350,8 +368,11 @@ module App =
             
         let gridSize =
             fss [ Position.Absolute
+                  
                   Width' (px (11 * squareSize))
                   Height' (px (11 * squareSize))
+                  
+                  PointerEvents.None
             ]
 
         let square dark king'sSquare king'sManSquare clan'sManSquare isKing'sCastle isAttemptedDragTo =
@@ -431,36 +452,37 @@ module App =
                 | _ -> None
             | _ -> None
 
-        let allLegalMoves = legalMoves model
+        let allLegalMoves =
+                match model.currentlyDragging with
+                | None ->
+                    Set.empty
+                | Some (x,y) ->
+                        legalMoves (x,y) model
         
         let draw piece =
            function
-           | _, None-> fragment [] []
-           | index, Some (i,j)->
-           let (mouseX, mouseY) = model.mousePos
+           | _, None ->
+               fragment [] []
+           | index, Some (i,j) ->
+               let (mouseX, mouseY) = model.mousePos
 
-           let (draggingI, draggingJ) =
-               match model.currentlyDragging with
-               | Some (piece, i, j) -> i, j
-               | None -> 0, 0
+               let (draggingI, draggingJ) =
+                   match model.currentlyDragging with
+                   | Some (i, j) -> i, j
+                   | None -> 0, 0
 
-           div [ Key $"{piece}:{index}"
-                 ClassName(
-                     pieceStyle
-                         piece (i,j)
-                         (if model.currentlyDragging <> None
-                             && draggingI = i
-                             && draggingJ = j then
-                              Some(int mouseX, int mouseY)
-                          else
-                              None)
-                 )
-                 Draggable true
-                 OnDragStart
-                     (fun e ->
-                         dispatch <| DragStart(piece, i, j)
-                         //e.dataTransfer.setData("dragging", serializePiecePosition piece (i,j))
-                         |> ignore) ] []
+               div [ Key $"{piece}:{index}"
+                     ClassName(
+                         pieceStyle
+                             piece (i,j)
+                             (if model.currentlyDragging <> None
+                                 && draggingI = i
+                                 && draggingJ = j then
+                                  Some(int mouseX, int mouseY)
+                              else
+                                  None)
+                     )
+                    ] []
 
         fragment [] [
             div [ ClassName grid ]
@@ -478,15 +500,11 @@ module App =
                                       (isKing'sCastle (i, j))
                                       (allLegalMoves |> Set.contains (i, j))
                               )
-                              OnDragOver(fun e -> e.preventDefault ())
-                              OnDrop
-                                  (fun e ->
-                                      e.preventDefault ()
-
-                                      e.dataTransfer.getData ("dragging")
-                                      |> parsePiecePosition
-                                      |> Option.map (fun (piece, x, y) -> (piece, (x, y), (i, j)) |> Move |> dispatch)
-                                      |> ignore) ] [] ))
+                              OnMouseDown
+                                 (fun _ -> dispatch <| DragStart (i, j))
+                              OnMouseUp
+                                  (fun _ -> dispatch <| DragEnd (Some (i,j)))
+                             ] [] ))
             
             div [ ClassName gridSize ] 
                 [draw King ( 0, Some model.boardState.king'sPosition )]
