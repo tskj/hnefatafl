@@ -360,22 +360,24 @@ module App =
                 node.removeEventListener(eventType, f) }
 
     let render = FunctionComponent.Of(fun (model: Model, dispatch: Dispatch<Msg>) ->
-        let isDragging = model.currentlyDragging <> None
+        let isDragging = model.currentlyDragging
         let (startMouseX, startMouseY) = model.mousePos
         let currentDraggedPieceRef = Hooks.useRef<HTMLDivElement option> None
+        let squareSize = 50
         Hooks.useEffectDisposable(fun () ->
                                       match isDragging, currentDraggedPieceRef.current with
-                                      | true, Some ref ->
+                                      | Some (i,j), Some ref ->
+                                           let i = boardSize / 2 + i
+                                           let j = boardSize / 2 + j
                                            (document, "mousemove")
                                            |> attachEvent (fun e ->
                                                                 let e = e :?> MouseEvent
-                                                                ref.setAttribute("style", $"transform: translate3d({int e.clientX - startMouseX}px, {int e.clientY - startMouseY}px, 0px)")
+                                                                ref.setAttribute("style", $"left: {j * squareSize}px; top: {i * squareSize}px; transform: translate3d({int e.clientX - startMouseX}px, {int e.clientY - startMouseY}px, 0px)")
                                                           ,fun () ->
                                                                 ref.setAttribute("style", "") )
                                       | _ ->
                                           { new IDisposable with member __.Dispose() = () }
-                                  , [|isDragging; currentDraggedPieceRef|])
-        let squareSize = 50
+                                  , [|isDragging; currentDraggedPieceRef; startMouseX; startMouseY; squareSize; boardSize|])
         let grid =
             fss [ Display.Grid
                   Position.Absolute
@@ -450,7 +452,7 @@ module App =
                       | Clan'sMan ->
                           BackgroundColor.black
                   ]
-                  ]
+            ]
 
         let allLegalMoves =
                 match model.currentlyDragging with
