@@ -108,13 +108,15 @@ module App =
         { boardState: Board
           winner: Player option
           playerToMove: Player
+          squareSize: int
           currentlyDragging: (int * int) option
-          mousePos: int * int }
+          startDragMousePos: int * int
+          animationReleaseScreenPosition: int * int }
 
     type Msg =
         | Move of (int * int) * (int * int)
         | DragStart of ((int * int) * (int * int))
-        | DragEnd of (int * int) option
+        | DragEnd of ((int * int) * (int * int)) option
         | Capture of int * int
         | CheckWinner
 
@@ -122,14 +124,21 @@ module App =
         { boardState = initBoard ()
           winner = None
           playerToMove = ClanSide
+          squareSize = 50
           currentlyDragging = None
-          mousePos = 0, 0 },
+          startDragMousePos = 0, 0
+          animationReleaseScreenPosition = 0, 0},
         Cmd.none
 
 
     let tee f x =
         f x
         x
+        
+    let gameSpaceToScreenSpace squareSize (i,j) =
+        let screenSpaceY = (boardSize / 2 + i) * squareSize
+        let screenSpaceX = (boardSize / 2 + j) * squareSize
+        (screenSpaceX, screenSpaceY)
         
     let getPiece (i,j) (board: Board) =
         if board.king'sPosition = (i,j) then
@@ -305,14 +314,16 @@ module App =
         | DragStart ((i,j),(mouseX,mouseY)) ->
             { model with
                   currentlyDragging = Some (i,j)
-                  mousePos = (mouseX, mouseY) },
+                  startDragMousePos = (mouseX, mouseY) },
             Cmd.none
-        | DragEnd pos ->
+        | DragEnd data ->
             let stoppedDragging = 
                 { model with currentlyDragging = None }
-            match model.currentlyDragging, pos with
-            | Some (fromX, fromY), Some (toX, toY) ->
-                stoppedDragging
+            match model.currentlyDragging, data with
+            | Some (fromX, fromY), Some ((toX, toY), (mouseX, mouseY)) ->
+                let dragVector = (mouseX - fst model.startDragMousePos, mouseY - snd model.startDragMousePos)
+                let (startXScreen, startYScreen) = gameSpaceToScreenSpace model.squareSize (fromX, fromY)
+                { stoppedDragging with animationReleaseScreenPosition = (startXScreen + fst dragVector, startYScreen + snd dragVector)} 
                 , (Move ((fromX,fromY), (toX, toY)) |> Cmd.ofMsg)
             | _ ->
                 stoppedDragging
@@ -361,9 +372,9 @@ module App =
 
     let render = FunctionComponent.Of(fun (model: Model, dispatch: Dispatch<Msg>) ->
         let isDragging = model.currentlyDragging
-        let (startMouseX, startMouseY) = model.mousePos
+        let (startMouseX, startMouseY) = model.startDragMousePos
         let currentDraggedPieceRef = Hooks.useRef<HTMLDivElement option> None
-        let squareSize = 50
+        let squareSize = model.squareSize
         Hooks.useEffectDisposable(fun () ->
                                       match isDragging, currentDraggedPieceRef.current with
                                       | Some (i,j), Some ref ->
@@ -372,7 +383,7 @@ module App =
                                            (document, "mousemove")
                                            |> attachEvent (fun e ->
                                                                 let e = e :?> MouseEvent
-                                                                ref.setAttribute("style", $"left: {j * squareSize}px; top: {i * squareSize}px; transform: translate3d({int e.clientX - startMouseX}px, {int e.clientY - startMouseY}px, 0px)")
+                                                                ref.setAttribute("style", $"left: {j * squareSize}px; top: {i * squareSize}px; transform: translate3d({int e.clientX - startMouseX}px, {int e.clientY - startMouseY}px, 0px) scale(1.2)")
                                                           ,fun () ->
                                                                 ref.setAttribute("style", "") )
                                       | _ ->
@@ -416,9 +427,8 @@ module App =
                   if isAttemptedDragTo then
                       BackgroundColor.aquaMarine ]
 
-        let pieceStyle pieceType (i,j) mousePos =
-            let i = boardSize / 2 + i
-            let j = boardSize / 2 + j
+        let pieceStyle pieceType (i,j) =
+            let (x,y) = gameSpaceToScreenSpace model.squareSize (i,j)
             
             let percent percentage x = percentage * x / 100
             
@@ -427,8 +437,8 @@ module App =
                   JustifyContent.Center
                   AlignItems.Center
                   
-                  Left' (px (j * squareSize))
-                  Top' (px (i * squareSize))
+                  Left' (px x)
+                  Top' (px y)
                   
                   Height' (px squareSize)
                   Width' (px squareSize)
@@ -466,27 +476,14 @@ module App =
            | _, None ->
                fragment [] []
            | index, Some (i,j) ->
-               let (mouseX, mouseY) = model.mousePos
 
                let (draggingI, draggingJ) =
-                   match model.currentlyDragging with
-                   | Some (i, j) -> i, j
-                   | None -> 0, 0
+                   model.currentlyDragging |> Option.defaultValue (-100, -100)
                
-               let isDraggingThisOne = 
-                        model.currentlyDragging <> None
-                                                && draggingI = i
-                                                && draggingJ = j
+               let isDraggingThisOne = draggingI = i && draggingJ = j
 
                div [ Key $"{piece}:{index}"
-                     ClassName(
-                         pieceStyle
-                             piece (i,j)
-                             (if isDraggingThisOne then
-                                  Some(int mouseX, int mouseY)
-                              else
-                                  None)
-                     )
+                     ClassName( pieceStyle piece (i,j) )
                      Ref (fun ref ->
                                 if isDraggingThisOne then
                                         let ref = ref :?> HTMLDivElement
@@ -513,7 +510,7 @@ module App =
                                  (fun e ->
                                   dispatch <| DragStart ((i,j), (int e.clientX, int e.clientY)))
                               OnMouseUp
-                                  (fun _ -> dispatch <| DragEnd (Some (i,j)))
+                                  (fun e -> dispatch <| DragEnd (Some ((i,j), (int e.clientX, int e.clientY))))
                              ] [] ))
             
             div [ ClassName gridSize ] 
