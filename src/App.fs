@@ -109,22 +109,21 @@ module App =
           winner: Player option
           playerToMove: Player
           currentlyDragging: (int * int) option
-          mousePos: double * double }
+          mousePos: int * int }
 
     type Msg =
         | Move of (int * int) * (int * int)
-        | DragStart of (int * int)
+        | DragStart of ((int * int) * (int * int))
         | DragEnd of (int * int) option
         | Capture of int * int
         | CheckWinner
-        | MouseMove of double * double
 
     let init () =
         { boardState = initBoard ()
           winner = None
           playerToMove = ClanSide
           currentlyDragging = None
-          mousePos = 0., 0. },
+          mousePos = 0, 0 },
         Cmd.none
 
 
@@ -143,6 +142,7 @@ module App =
             None
 
     let legalMoves (fromX, fromY) (gameState: Model) =
+        printf "legal moves"
         let board = gameState.boardState
         let pieceToMove = board |> getPiece (fromX, fromY)
 
@@ -302,9 +302,10 @@ module App =
             else
                 model, Cmd.none
 
-        | DragStart data ->
+        | DragStart ((i,j),(mouseX,mouseY)) ->
             { model with
-                  currentlyDragging = Some data },
+                  currentlyDragging = Some (i,j)
+                  mousePos = (mouseX, mouseY) },
             Cmd.none
         | DragEnd pos ->
             let stoppedDragging = 
@@ -350,15 +351,30 @@ module App =
                       else if isClanWinner then Some ClanSide
                       else None },
             Cmd.none
+            
+    let attachEvent (f: Event -> unit, cleanup: unit -> unit) (node: Node, eventType: string) =
+        node.addEventListener(eventType, f)
+        { new IDisposable with
+            member __.Dispose() =
+                cleanup()
+                node.removeEventListener(eventType, f) }
 
-        | MouseMove (x, y) ->
-            match model.currentlyDragging with
-            | None -> model, Cmd.none
-            | Some _ -> { model with mousePos = (x, y) }, Cmd.none
-
-        | _ -> model, Cmd.none
-
-    let render (model: Model) (dispatch: Msg -> unit) =
+    let render = FunctionComponent.Of(fun (model: Model, dispatch: Dispatch<Msg>) ->
+        let isDragging = model.currentlyDragging <> None
+        let (startMouseX, startMouseY) = model.mousePos
+        let currentDraggedPieceRef = Hooks.useRef<HTMLDivElement option> None
+        Hooks.useEffectDisposable(fun () ->
+                                      match isDragging, currentDraggedPieceRef.current with
+                                      | true, Some ref ->
+                                           (document, "mousemove")
+                                           |> attachEvent (fun e ->
+                                                                let e = e :?> MouseEvent
+                                                                ref.setAttribute("style", $"transform: translate3d({int e.clientX - startMouseX}px, {int e.clientY - startMouseY}px, 0px)")
+                                                          ,fun () ->
+                                                                ref.setAttribute("style", "") )
+                                      | _ ->
+                                          { new IDisposable with member __.Dispose() = () }
+                                  , [|isDragging; currentDraggedPieceRef|])
         let squareSize = 50
         let grid =
             fss [ Display.Grid
@@ -434,12 +450,6 @@ module App =
                       | Clan'sMan ->
                           BackgroundColor.black
                   ]
-
-                  match mousePos with
-                  | None -> ()
-                  | Some (x, y) ->
-                      Transforms [ Transform.TranslateX(px (x - j * squareSize - squareSize / 2 - 10))
-                                   Transform.TranslateY(px (y - i * squareSize - squareSize / 2 - 10)) ]
                   ]
 
         let allLegalMoves =
@@ -460,18 +470,25 @@ module App =
                    match model.currentlyDragging with
                    | Some (i, j) -> i, j
                    | None -> 0, 0
+               
+               let isDraggingThisOne = 
+                        model.currentlyDragging <> None
+                                                && draggingI = i
+                                                && draggingJ = j
 
                div [ Key $"{piece}:{index}"
                      ClassName(
                          pieceStyle
                              piece (i,j)
-                             (if model.currentlyDragging <> None
-                                 && draggingI = i
-                                 && draggingJ = j then
+                             (if isDraggingThisOne then
                                   Some(int mouseX, int mouseY)
                               else
                                   None)
                      )
+                     Ref (fun ref ->
+                                if isDraggingThisOne then
+                                        let ref = ref :?> HTMLDivElement
+                                        currentDraggedPieceRef.current <- Some ref)
                     ] []
 
         fragment [] [
@@ -488,10 +505,11 @@ module App =
                                       (isKing'sManSquare i j)
                                       (isClan'sManSquare i j)
                                       (isKing'sCastle (i, j))
-                                      (allLegalMoves |> Set.contains (i, j))
+                                      (allLegalMoves |> Set.contains (i,j))
                               )
                               OnMouseDown
-                                 (fun _ -> dispatch <| DragStart (i, j))
+                                 (fun e ->
+                                  dispatch <| DragStart ((i,j), (int e.clientX, int e.clientY)))
                               OnMouseUp
                                   (fun _ -> dispatch <| DragEnd (Some (i,j)))
                              ] [] ))
@@ -511,22 +529,13 @@ module App =
                     |> List.map
                         (draw Clan'sMan))
                 
-            ]
+            ])
 
-    let onMouseMove dispatch (e: Browser.Types.Event) =
-        let e = e :?> MouseEvent
-        MouseMove(e.clientX, e.clientY) |> dispatch
+    let render' (model: Model) (dispatch: Dispatch<Msg>) =
+        render (model,dispatch)
+           
 
-    let sub initial =
-        let sub' dispatch =
-            //window.onmousemove onMouseMove
-            document.addEventListener ("mousemove", onMouseMove dispatch)
-            ()
-
-        Cmd.ofSub sub'
-
-
-    Program.mkProgram init update render
-    |> Program.withSubscription sub
+    Program.mkProgram init update render'
+    //|> Program.withSubscription sub
     |> Program.withReactSynchronous "elmish-app"
     |> Program.run
