@@ -401,56 +401,46 @@ module App =
         let pieceStyle pieceType (i,j) mousePos =
             let i = boardSize / 2 + i
             let j = boardSize / 2 + j
+            
             let percent percentage x = percentage * x / 100
-            fss [ Height' (px (percent 70 squareSize))
-                  Width' (px (percent 70 squareSize))
-
-                  match pieceType with
-                  | King ->
-                      BackgroundColor.orangeRed
-                      Height' (px squareSize)
-                      Width' (px squareSize)
-                      BorderRadius'(pct 100)
-                  | King'sMan -> BackgroundColor.orangeRed
-                  | Clan'sMan -> BackgroundColor.black
-
-                  BorderRadius'(pct 100)
-
-                  Position.Absolute
-                  //Transforms [ Transform.TranslateX(pct -50)
-                               //Transform.TranslateY(pct -50) ]
+            
+            fss [ Position.Absolute
+                  Display.Flex
+                  JustifyContent.Center
+                  AlignItems.Center
+                  
                   Left' (px (j * squareSize))
                   Top' (px (i * squareSize))
+                  
+                  Height' (px squareSize)
+                  Width' (px squareSize)
+                  
+                  After [
+                    Display.Block
+                    Content.Value("")
+                    BorderRadius'(pct 100)
+                    
+                    Height' (px (percent 70 squareSize))
+                    Width' (px (percent 70 squareSize))
+
+                    match pieceType with
+                      | King ->
+                          BackgroundColor.orangeRed
+                          Height' (px squareSize)
+                          Width' (px squareSize)
+                          BorderRadius'(pct 100)
+                      | King'sMan ->
+                          BackgroundColor.orangeRed
+                      | Clan'sMan ->
+                          BackgroundColor.black
+                  ]
 
                   match mousePos with
                   | None -> ()
                   | Some (x, y) ->
-                      Left'(px x)
-                      Top'(px y)
-                   ]
-
-        let serializePiecePosition piece (i, j) =
-            let pieceName =
-                match piece with
-                | King -> "King"
-                | King'sMan -> "KingMan"
-                | Clan'sMan -> "ClanMan"
-
-            sprintf "%s:%i:%i" pieceName i j
-
-        let parsePiecePosition (piecePos: string) =
-            piecePos.Split(':')
-            |> function
-            | [| piece; i; j |] ->
-                let i = parse i
-                let j = parse j
-
-                match piece, i, j with
-                | "King", Some i, Some j -> Some(King, i, j)
-                | "KingMan", Some i, Some j -> Some(King'sMan, i, j)
-                | "ClanMan", Some i, Some j -> Some(Clan'sMan, i, j)
-                | _ -> None
-            | _ -> None
+                      Transforms [ Transform.TranslateX(px (x - j * squareSize - squareSize / 2 - 10))
+                                   Transform.TranslateY(px (y - i * squareSize - squareSize / 2 - 10)) ]
+                  ]
 
         let allLegalMoves =
                 match model.currentlyDragging with
