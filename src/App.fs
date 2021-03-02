@@ -111,7 +111,7 @@ module App =
           squareSize: int
           currentlyDragging: (int * int) option
           startDragMousePos: int * int
-          animationReleaseScreenPosition: int * int }
+          animationReleaseScreenPosition: {| pieceI: int; pieceJ: int; screenX: int; screenY: int |} }
 
     type Msg =
         | Move of (int * int) * (int * int)
@@ -127,7 +127,7 @@ module App =
           squareSize = 50
           currentlyDragging = None
           startDragMousePos = 0, 0
-          animationReleaseScreenPosition = 0, 0},
+          animationReleaseScreenPosition = {| pieceI = 0; pieceJ = 0; screenX = 0; screenY = 0 |}},
         Cmd.none
 
 
@@ -323,8 +323,12 @@ module App =
             | Some (fromX, fromY), Some ((toX, toY), (mouseX, mouseY)) ->
                 let dragVector = (mouseX - fst model.startDragMousePos, mouseY - snd model.startDragMousePos)
                 let (startXScreen, startYScreen) = gameSpaceToScreenSpace model.squareSize (fromX, fromY)
-                { stoppedDragging with animationReleaseScreenPosition = (startXScreen + fst dragVector, startYScreen + snd dragVector)} 
-                , (Move ((fromX,fromY), (toX, toY)) |> Cmd.ofMsg)
+                { stoppedDragging with animationReleaseScreenPosition = {|
+                                                                          pieceI = toX
+                                                                          pieceJ = toY
+                                                                          screenX = startXScreen + fst dragVector
+                                                                          screenY = startYScreen + snd dragVector |} }
+                , Move ((fromX,fromY), (toX, toY)) |> Cmd.ofMsg
             | _ ->
                 stoppedDragging
                 , Cmd.none
@@ -427,7 +431,7 @@ module App =
                   if isAttemptedDragTo then
                       BackgroundColor.aquaMarine ]
 
-        let pieceStyle pieceType (i,j) =
+        let pieceStyle pieceType (i,j) releasePosition =
             let (x,y) = gameSpaceToScreenSpace model.squareSize (i,j)
             
             let percent percentage x = percentage * x / 100
@@ -461,6 +465,28 @@ module App =
                           BackgroundColor.orangeRed
                       | Clan'sMan ->
                           BackgroundColor.black
+                          
+                    match releasePosition with
+                      | None -> ()
+                      | Some (x', y') ->
+                              let x'' = x' - x
+                              let y'' = y' - y
+                              let dropKeyframes =
+                                keyframes [
+                                    frame 0 [
+                                      Transforms [
+                                        Transform.Translate3D(px x'', px y'', px 0)
+                                      ]
+                                    ]
+                                    frame 100 [
+                                      Transforms [
+                                        Transform.Translate3D(px 0, px 0, px 0)
+                                      ]
+                                    ]
+                                ]
+                              AnimationName' dropKeyframes
+                              AnimationDuration' (sec 0.01)
+                              AnimationTimingFunction.Linear
                   ]
             ]
 
@@ -483,7 +509,7 @@ module App =
                let isDraggingThisOne = draggingI = i && draggingJ = j
 
                div [ Key $"{piece}:{index}"
-                     ClassName( pieceStyle piece (i,j) )
+                     ClassName( pieceStyle piece (i,j) (if i = model.animationReleaseScreenPosition.pieceI && j = model.animationReleaseScreenPosition.pieceJ then Some (model.animationReleaseScreenPosition.screenX, model.animationReleaseScreenPosition.screenY) else None) )
                      Ref (fun ref ->
                                 if isDraggingThisOne then
                                         let ref = ref :?> HTMLDivElement
