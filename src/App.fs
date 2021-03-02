@@ -387,7 +387,7 @@ module App =
                                            (document, "mousemove")
                                            |> attachEvent (fun e ->
                                                                 let e = e :?> MouseEvent
-                                                                ref.setAttribute("style", $"left: {j * squareSize}px; top: {i * squareSize}px; transform: translate3d({int e.clientX - startMouseX}px, {int e.clientY - startMouseY}px, 0px) scale(1.2)")
+                                                                ref.setAttribute("style", $"left: {j * squareSize}px; top: {i * squareSize}px; transform: translate3d({int e.clientX - startMouseX}px, {int e.clientY - startMouseY}px, 0px) /*scale(1.2)*/")
                                                           ,fun () ->
                                                                 ref.setAttribute("style", "") )
                                       | _ ->
@@ -411,22 +411,23 @@ module App =
         let square dark king'sSquare king'sManSquare clan'sManSquare isKing'sCastle isAttemptedDragTo =
             fss [ Position.Relative
 
-                  if dark then
-                      BackgroundColor.gainsboro
-                  else
-                      BackgroundColor.white
+                  BackgroundColor' (hex "5a3300")
+                  BorderRadius' (px 10)
+                  Transforms [
+                      Transform.Scale 0.95
+                  ]
 
                   if king'sSquare then
                       BackgroundColor.black
 
                   if king'sManSquare then
-                      BackgroundColor.darkGray
+                      BackgroundColor.grey
 
                   if clan'sManSquare then
-                      BackgroundColor.rebeccaPurple
+                      BackgroundColor' (hex "402d54")
 
                   if isKing'sCastle then
-                      BackgroundColor.lime
+                      BackgroundColor.greenYellow
 
                   if isAttemptedDragTo then
                       BackgroundColor.aquaMarine ]
@@ -450,19 +451,27 @@ module App =
                   After [
                     Display.Block
                     Content.Value("")
-                    BorderRadius'(pct 100)
+                    
+                    if pieceType <> King then
+                        BorderRadius'(pct 100)
+                        if pieceType = Clan'sMan then
+                            BorderColor' (hex "82715b")
+                        else
+                            BorderColor' (hex "")
+                        BorderWidth' (px 2)
+                        BorderStyle.Solid
                     
                     Height' (px (percent 70 squareSize))
                     Width' (px (percent 70 squareSize))
 
                     match pieceType with
                       | King ->
-                          BackgroundColor.orangeRed
+                          BackgroundColor' (hex "963511")
                           Height' (px squareSize)
                           Width' (px squareSize)
                           BorderRadius'(pct 100)
                       | King'sMan ->
-                          BackgroundColor.orangeRed
+                          BackgroundColor' (hex "963511")
                       | Clan'sMan ->
                           BackgroundColor.black
                           
@@ -485,8 +494,8 @@ module App =
                                     ]
                                 ]
                               AnimationName' dropKeyframes
-                              AnimationDuration' (sec 0.01)
-                              AnimationTimingFunction.Linear
+                              AnimationDuration' (ms 50.)
+                              AnimationTimingFunction.CubicBezier(0.71,0.,1.,0.33)
                   ]
             ]
 
