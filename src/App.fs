@@ -10,6 +10,10 @@ module App =
     open Fss
     open System
     open Browser
+    
+    (**
+    * Library helper functions
+    *)
 
     let uncurry f (x, y) = f x y
 
@@ -17,6 +21,10 @@ module App =
         match Int32.TryParse s with
         | (true, i) -> Some i
         | _ -> None
+        
+    (**
+    * Domain-specific helper functions
+    *)
 
     let toSet =
         List.collect
@@ -24,6 +32,10 @@ module App =
             | Some x -> [ x ]
             | None -> [])
         >> Set.ofList
+        
+    (**
+    * Domain-specific operations
+    *)
 
     let replaceGuy (i, j) guy guys =
         guys
@@ -39,10 +51,9 @@ module App =
             | Some (x, y) when (guys |> Set.contains (x, y)) -> None
             | x -> x)
 
-    let isDarkSquare i j = (i + j) % 2 = 0
-    let isKing'sSquare i j = i = 0 && j = 0
+    let isKingsSquare i j = i = 0 && j = 0
 
-    let isKing'sManSquare (i: int) (j: int) =
+    let isKingsManSquare (i: int) (j: int) =
         let i' = Math.Abs i
         let j' = Math.Abs j
 
@@ -53,7 +64,7 @@ module App =
           (1, 1) ]
         |> List.contains (i', j')
 
-    let isClan'sManSquare (i: int) (j: int) =
+    let isClansManSquare (i: int) (j: int) =
         let i' = Math.Abs i
         let j' = Math.Abs j
 
@@ -68,7 +79,7 @@ module App =
         |> List.contains (i', j')
 
     let boardSize = 11
-    let isKing'sCastle (i, j) = (i = (boardSize / 2) || i = -(boardSize / 2)) && (j = (boardSize / 2) || j = -(boardSize / 2))
+    let isKingsCastle (i, j) = (i = (boardSize / 2) || i = -(boardSize / 2)) && (j = (boardSize / 2) || j = -(boardSize / 2))
 
     let boardCoords =
         [ -(boardSize / 2) .. (boardSize / 2) ]
@@ -78,25 +89,31 @@ module App =
 
     type Piece =
         | King
-        | King'sMan
-        | Clan'sMan
-
+        | KingsMan
+        | ClansMan
+        
+    type PiecePosition =
+        int * int
+        
+    type ScreenPosition =
+        int * int
+        
     type Board =
-        { king'sPosition: int * int
-          king'sMen: (int * int) option list
-          clan'sMen: (int * int) option list }
+        { kingsPosition: PiecePosition
+          kingsMen: PiecePosition option list
+          clansMen: PiecePosition option list }
 
     let initBoard () =
-        { king'sPosition = 0, 0
-          king'sMen =
+        { kingsPosition = 0, 0
+          kingsMen =
               boardCoords
               |> List.ofSeq
-              |> List.filter (uncurry isKing'sManSquare)
+              |> List.filter (uncurry isKingsManSquare)
               |> List.map Some
-          clan'sMen =
+          clansMen =
               boardCoords
               |> List.ofSeq
-              |> List.filter (uncurry isClan'sManSquare)
+              |> List.filter (uncurry isClansManSquare)
               |> List.map Some }
 
     type Player =
@@ -109,15 +126,15 @@ module App =
           winner: Player option
           playerToMove: Player
           squareSize: int
-          currentlyDragging: (int * int) option
-          startDragMousePos: int * int
-          animationReleaseScreenPosition: {| pieceI: int; pieceJ: int; screenX: int; screenY: int |} }
+          currentlyDragging: PiecePosition option
+          startDragMousePos: ScreenPosition
+          animationReleaseScreenPosition: PiecePosition * ScreenPosition }
 
     type Msg =
-        | Move of (int * int) * (int * int)
-        | DragStart of ((int * int) * (int * int))
-        | DragEnd of ((int * int) * (int * int)) option
-        | Capture of int * int
+        | Move of PiecePosition * PiecePosition
+        | DragStart of PiecePosition * ScreenPosition
+        | DragEnd of (PiecePosition * ScreenPosition) option
+        | Capture of PiecePosition
         | CheckWinner
 
     let init () =
@@ -127,7 +144,7 @@ module App =
           squareSize = 50
           currentlyDragging = None
           startDragMousePos = 0, 0
-          animationReleaseScreenPosition = {| pieceI = 0; pieceJ = 0; screenX = 0; screenY = 0 |}},
+          animationReleaseScreenPosition = (0, 0), (0, 0) },
         Cmd.none
 
 
@@ -141,17 +158,16 @@ module App =
         (screenSpaceX, screenSpaceY)
         
     let getPiece (i,j) (board: Board) =
-        if board.king'sPosition = (i,j) then
+        if board.kingsPosition = (i,j) then
             Some King
-        else if board.king'sMen |> List.contains (Some (i,j)) then
-            Some King'sMan
-        else if board.clan'sMen |> List.contains (Some (i,j)) then
-            Some Clan'sMan
+        else if board.kingsMen |> List.contains (Some (i,j)) then
+            Some KingsMan
+        else if board.clansMen |> List.contains (Some (i,j)) then
+            Some ClansMan
         else
             None
 
     let legalMoves (fromX, fromY) (gameState: Model) =
-        printf "legal moves"
         let board = gameState.boardState
         let pieceToMove = board |> getPiece (fromX, fromY)
 
@@ -159,9 +175,9 @@ module App =
         | _, _, Some _ -> Set.empty
         | _, None, _ -> Set.empty
         | (x, y), Some piece, _ ->
-            if (piece = King || piece = King'sMan)
+            if (piece = King || piece = KingsMan)
                && gameState.playerToMove = ClanSide
-               || piece = Clan'sMan
+               || piece = ClansMan
                   && gameState.playerToMove = KingSide 
             then
                 Set.empty
@@ -170,10 +186,10 @@ module App =
                     piece = King
 
                 let occupiedSquares =
-                    board.king'sMen
+                    board.kingsMen
                     |> toSet
-                    |> Set.add board.king'sPosition
-                    |> Set.union (board.clan'sMen |> toSet)
+                    |> Set.add board.kingsPosition
+                    |> Set.union (board.clansMen |> toSet)
 
                 let allPossibleMoves = boardCoords
 
@@ -232,23 +248,23 @@ module App =
               (i - 1, j) ]
             |> Set.ofList
 
-        let king'sPiece =
-            board.king'sMen
+        let kingsPiece =
+            board.kingsMen
             |> toSet
-            |> Set.add board.king'sPosition
+            |> Set.add board.kingsPosition
             |> Set.contains (i, j)
 
-        let clan'sPiece =
-            board.clan'sMen |> toSet |> Set.contains (i, j)
+        let clansPiece =
+            board.clansMen |> toSet |> Set.contains (i, j)
 
-        if king'sPiece then
-            board.clan'sMen
+        if kingsPiece then
+            board.clansMen
             |> toSet
             |> Set.filter (fun x -> neighbours |> Set.contains x)
-        else if clan'sPiece then
-            board.king'sMen
+        else if clansPiece then
+            board.kingsMen
             |> toSet
-            |> Set.add board.king'sPosition
+            |> Set.add board.kingsPosition
             |> Set.filter (fun x -> neighbours |> Set.contains x)
         else
             Set.empty
@@ -285,24 +301,24 @@ module App =
                     { model with
                           boardState =
                               { model.boardState with
-                                    king'sPosition = (toX, toY) } }
+                                    kingsPosition = (toX, toY) } }
                     , Cmd.batch [ Capture(toX, toY) |> Cmd.ofMsg
                                   CheckWinner |> Cmd.ofMsg ]
-                | Some King'sMan ->
+                | Some KingsMan ->
                     { model with
                           boardState =
                               { model.boardState with
-                                    king'sMen =
-                                        model.boardState.king'sMen
+                                    kingsMen =
+                                        model.boardState.kingsMen
                                         |> replaceGuy (fromX, fromY) (Some(toX, toY)) } }
                     , Cmd.batch [ Capture(toX, toY) |> Cmd.ofMsg
                                   CheckWinner |> Cmd.ofMsg ]
-                | Some Clan'sMan ->
+                | Some ClansMan ->
                     { model with
                           boardState =
                               { model.boardState with
-                                    clan'sMen =
-                                        model.boardState.clan'sMen
+                                    clansMen =
+                                        model.boardState.clansMen
                                         |> replaceGuy (fromX, fromY) (Some(toX, toY)) } }
                     , Cmd.batch [ Capture(toX, toY) |> Cmd.ofMsg
                                   CheckWinner |> Cmd.ofMsg ]
@@ -323,11 +339,10 @@ module App =
             | Some (fromX, fromY), Some ((toX, toY), (mouseX, mouseY)) ->
                 let dragVector = (mouseX - fst model.startDragMousePos, mouseY - snd model.startDragMousePos)
                 let (startXScreen, startYScreen) = gameSpaceToScreenSpace model.squareSize (fromX, fromY)
-                { stoppedDragging with animationReleaseScreenPosition = {|
-                                                                          pieceI = toX
-                                                                          pieceJ = toY
-                                                                          screenX = startXScreen + fst dragVector
-                                                                          screenY = startYScreen + snd dragVector |} }
+                { stoppedDragging with animationReleaseScreenPosition = (toX,
+                                                                          toY),
+                                                                          (startXScreen + fst dragVector,
+                                                                            startYScreen + snd dragVector ) }
                 , Move ((fromX,fromY), (toX, toY)) |> Cmd.ofMsg
             | _ ->
                 stoppedDragging
@@ -342,21 +357,21 @@ module App =
             { model with
                   boardState =
                       { model.boardState with
-                            king'sMen =
-                                model.boardState.king'sMen
+                            kingsMen =
+                                model.boardState.kingsMen
                                 |> removeGuys capturedNeighbours
-                            clan'sMen =
-                                model.boardState.clan'sMen
+                            clansMen =
+                                model.boardState.clansMen
                                 |> removeGuys capturedNeighbours 
                       } },
             Cmd.none
 
         | CheckWinner ->
             let isKingWinner =
-                isKing'sCastle model.boardState.king'sPosition
+                isKingsCastle model.boardState.kingsPosition
 
             let isClanWinner =
-                enemyNeighbours model.boardState model.boardState.king'sPosition
+                enemyNeighbours model.boardState model.boardState.kingsPosition
                 |> Set.count = 4
 
             { model with
@@ -408,7 +423,7 @@ module App =
                   PointerEvents.None
             ]
 
-        let square dark king'sSquare king'sManSquare clan'sManSquare isKing'sCastle isAttemptedDragTo =
+        let square kingsSquare kingsManSquare clansManSquare isKingsCastle isAttemptedDragTo =
             fss [ Position.Relative
 
                   BackgroundColor' (hex "5a3300")
@@ -417,16 +432,16 @@ module App =
                       Transform.Scale 0.95
                   ]
 
-                  if king'sSquare then
+                  if kingsSquare then
                       BackgroundColor.black
 
-                  if king'sManSquare then
+                  if kingsManSquare then
                       BackgroundColor.grey
 
-                  if clan'sManSquare then
+                  if clansManSquare then
                       BackgroundColor' (hex "402d54")
 
-                  if isKing'sCastle then
+                  if isKingsCastle then
                       BackgroundColor.greenYellow
 
                   if isAttemptedDragTo then
@@ -454,7 +469,7 @@ module App =
                     
                     if pieceType <> King then
                         BorderRadius'(pct 100)
-                        if pieceType = Clan'sMan then
+                        if pieceType = ClansMan then
                             BorderColor' (hex "82715b")
                         else
                             BorderColor' (hex "")
@@ -470,9 +485,9 @@ module App =
                           Height' (px squareSize)
                           Width' (px squareSize)
                           BorderRadius'(pct 100)
-                      | King'sMan ->
+                      | KingsMan ->
                           BackgroundColor' (hex "963511")
-                      | Clan'sMan ->
+                      | ClansMan ->
                           BackgroundColor.black
                           
                     match releasePosition with
@@ -516,9 +531,21 @@ module App =
                    model.currentlyDragging |> Option.defaultValue (-100, -100)
                
                let isDraggingThisOne = draggingI = i && draggingJ = j
+               
+               let ((pieceI, pieceJ), (screenX, screenY)) = model.animationReleaseScreenPosition
 
+               let releaseScreenPosition =
+                     (if
+                        i = pieceI
+                        && j = pieceJ
+                      then
+                          Some (screenX
+                                , screenY)
+                      else
+                          None)
+               
                div [ Key $"{piece}:{index}"
-                     ClassName( pieceStyle piece (i,j) (if i = model.animationReleaseScreenPosition.pieceI && j = model.animationReleaseScreenPosition.pieceJ then Some (model.animationReleaseScreenPosition.screenX, model.animationReleaseScreenPosition.screenY) else None) )
+                     ClassName( pieceStyle piece (i,j) releaseScreenPosition )
                      Ref (fun ref ->
                                 if isDraggingThisOne then
                                         let ref = ref :?> HTMLDivElement
@@ -534,11 +561,10 @@ module App =
                         div [ Key $"{i},{j}"
                               ClassName(
                                   square
-                                      (isDarkSquare i j)
-                                      (isKing'sSquare i j)
-                                      (isKing'sManSquare i j)
-                                      (isClan'sManSquare i j)
-                                      (isKing'sCastle (i, j))
+                                      (isKingsSquare i j)
+                                      (isKingsManSquare i j)
+                                      (isClansManSquare i j)
+                                      (isKingsCastle (i, j))
                                       (allLegalMoves |> Set.contains (i,j))
                               )
                               OnMouseDown
@@ -549,19 +575,19 @@ module App =
                              ] [] ))
             
             div [ ClassName gridSize ] 
-                [draw King ( 0, Some model.boardState.king'sPosition )]
+                [draw King ( 0, Some model.boardState.kingsPosition )]
                 
             div [ ClassName gridSize ] 
-                (model.boardState.king'sMen
+                (model.boardState.kingsMen
                     |> List.zip [0..100]
                     |> List.map
-                        (draw King'sMan))
+                        (draw KingsMan))
                                   
             div [ ClassName gridSize ] 
-                (model.boardState.clan'sMen
+                (model.boardState.clansMen
                     |> List.zip [0..100]
                     |> List.map
-                        (draw Clan'sMan))
+                        (draw ClansMan))
                 
             ])
 
