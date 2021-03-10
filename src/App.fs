@@ -22,99 +22,43 @@ module App =
         | (true, i) -> Some i
         | _ -> None
         
-    (**
-    * Domain-specific helper functions
-    *)
-
-    let toSet =
-        List.collect
-            (function
-            | Some x -> [ x ]
-            | None -> [])
-        >> Set.ofList
+    let tee f x =
+        f x
+        x
         
     (**
-    * Domain-specific operations
+    * Constants
     *)
 
-    let replaceGuy (i, j) guy guys =
-        guys
-        |> List.map
-            (function
-            | Some (x, y) when x = i && y = j -> guy
-            | x -> x)
-
-    let removeGuys guys fromGuys =
-        fromGuys
-        |> List.map
-            (function
-            | Some (x, y) when (guys |> Set.contains (x, y)) -> None
-            | x -> x)
-
-    let isKingsSquare i j = i = 0 && j = 0
-
-    let isKingsManSquare (i: int) (j: int) =
-        let i' = Math.Abs i
-        let j' = Math.Abs j
-
-        [ (0, 1)
-          (0, 2)
-          (1, 0)
-          (2, 0)
-          (1, 1) ]
-        |> List.contains (i', j')
-
-    let isClansManSquare (i: int) (j: int) =
-        let i' = Math.Abs i
-        let j' = Math.Abs j
-
-        [ (0, 4)
-          (0, 5)
-          (1, 5)
-          (2, 5)
-          (4, 0)
-          (5, 0)
-          (5, 1)
-          (5, 2) ]
-        |> List.contains (i', j')
-
     let boardSize = 11
-    let isKingsCastle (i, j) = (i = (boardSize / 2) || i = -(boardSize / 2)) && (j = (boardSize / 2) || j = -(boardSize / 2))
-
-    let boardCoords =
-        [ -(boardSize / 2) .. (boardSize / 2) ]
-        |> List.collect (fun i -> [ -(boardSize / 2) .. (boardSize / 2) ]
-                                  |> List.map (fun j -> i, j))
-        |> Set.ofList
+        
+    (**
+    * Domain types
+    *)
 
     type Piece =
         | King
         | KingsMan
         | ClansMan
-        
+
     type PiecePosition =
-        int * int
+        PiecePosition of int * int
         
     type ScreenPosition =
-        int * int
+        ScreenPosition of int * int
+
+    // TODO: Move this guy
+    let boardCoords =
+        [ -(boardSize / 2) .. (boardSize / 2) ]
+        |> List.collect (fun i -> [ -(boardSize / 2) .. (boardSize / 2) ]
+                                  |> List.map (fun j -> (i, j) |> PiecePosition))
+        |> Set.ofList
         
+
     type Board =
         { kingsPosition: PiecePosition
           kingsMen: PiecePosition option list
           clansMen: PiecePosition option list }
-
-    let initBoard () =
-        { kingsPosition = 0, 0
-          kingsMen =
-              boardCoords
-              |> List.ofSeq
-              |> List.filter (uncurry isKingsManSquare)
-              |> List.map Some
-          clansMen =
-              boardCoords
-              |> List.ofSeq
-              |> List.filter (uncurry isClansManSquare)
-              |> List.map Some }
 
     type Player =
         | KingSide
@@ -137,44 +81,86 @@ module App =
         | Capture of PiecePosition
         | CheckWinner
 
-    let init () =
-        { boardState = initBoard ()
-          winner = None
-          playerToMove = ClanSide
-          squareSize = 50
-          currentlyDragging = None
-          startDragMousePos = 0, 0
-          animationReleaseScreenPosition = (0, 0), (0, 0) },
-        Cmd.none
 
+    (**
+    * Domain-specific operations
+    *)
 
-    let tee f x =
-        f x
-        x
+    let toSet =
+        List.collect
+            (function
+            | Some x -> [ x ]
+            | None -> [])
+        >> Set.ofList
+ 
+    let replaceGuy pos guy guys =
+        guys
+        |> List.map
+            (function
+            | Some oldGuy when oldGuy = pos -> guy
+            | x -> x)
+
+    let removeGuys guys fromGuys =
+        fromGuys
+        |> List.map
+            (function
+            | Some pos when (guys |> Set.contains pos) -> None
+            | x -> x)
+
+    let isKingsSquare (PiecePosition (i,j)) = i = 0 && j = 0
+
+    let isKingsManSquare (PiecePosition (i,j)) =
+        let i' = Math.Abs i
+        let j' = Math.Abs j
+
+        [ (0, 1)
+          (0, 2)
+          (1, 0)
+          (2, 0)
+          (1, 1) ]
+        |> List.contains (i', j')
+
+    let isClansManSquare (PiecePosition (i,j)) =
+        let i' = Math.Abs i
+        let j' = Math.Abs j
+
+        [ (0, 4)
+          (0, 5)
+          (1, 5)
+          (2, 5)
+          (4, 0)
+          (5, 0)
+          (5, 1)
+          (5, 2) ]
+        |> List.contains (i', j')
         
-    let gameSpaceToScreenSpace squareSize (i,j) =
+    let isKingsCastle (PiecePosition (i, j)) =
+           (i = (boardSize / 2) || i = -(boardSize / 2))
+        && (j = (boardSize / 2) || j = -(boardSize / 2))
+        
+    let gameSpaceToScreenSpace squareSize (PiecePosition (i,j)) =
         let screenSpaceY = (boardSize / 2 + i) * squareSize
         let screenSpaceX = (boardSize / 2 + j) * squareSize
-        (screenSpaceX, screenSpaceY)
-        
-    let getPiece (i,j) (board: Board) =
-        if board.kingsPosition = (i,j) then
+        (screenSpaceX, screenSpaceY) |> ScreenPosition 
+
+    let getPiece pos (board: Board) =
+        if board.kingsPosition = pos then
             Some King
-        else if board.kingsMen |> List.contains (Some (i,j)) then
+        else if board.kingsMen |> List.contains (Some pos) then
             Some KingsMan
-        else if board.clansMen |> List.contains (Some (i,j)) then
+        else if board.clansMen |> List.contains (Some pos) then
             Some ClansMan
         else
             None
 
-    let legalMoves (fromX, fromY) (gameState: Model) =
+    let legalMoves fromPos (gameState: Model) =
         let board = gameState.boardState
-        let pieceToMove = board |> getPiece (fromX, fromY)
+        let pieceToMove = board |> getPiece fromPos
 
-        match (fromX, fromY), pieceToMove, gameState.winner with
+        match fromPos, pieceToMove, gameState.winner with
         | _, _, Some _ -> Set.empty
         | _, None, _ -> Set.empty
-        | (x, y), Some piece, _ ->
+        | PiecePosition (x, y), Some piece, _ ->
             if (piece = King || piece = KingsMan)
                && gameState.playerToMove = ClanSide
                || piece = ClansMan
@@ -193,7 +179,8 @@ module App =
 
                 let allPossibleMoves = boardCoords
 
-                let rec squaresBetween (x: int, y: int) (i, j) =
+                // TODO: x y PiecePosition as well
+                let rec squaresBetween (x: int, y: int) (PiecePosition (i, j)) =
                     let deltaX = Math.Sign(i - x)
                     let deltaY = Math.Sign(j - y)
 
@@ -204,32 +191,35 @@ module App =
                        || deltaY < 0 && y <= j then
                         Set.empty
                     else
-                        squaresBetween (x + deltaX, y + deltaY) (i, j)
-                        |> Set.add (x + deltaX, y + deltaY)
+                        squaresBetween (x + deltaX, y + deltaY) (PiecePosition (i, j))
+                        |> Set.add (PiecePosition (x + deltaX, y + deltaY))
 
                 allPossibleMoves
                 |> Set.filter
-                    (fun (i, j) ->
+                    (fun pos ->
                         // Remove occupied squares
-                        occupiedSquares |> Set.contains (i, j) |> not)
+                        occupiedSquares |> Set.contains pos |> not)
                 |> Set.filter
-                    (fun (i, j) ->
+                    (fun (PiecePosition (i,j)) ->
                         // Remove all that are not horizontal or vertical
                         let deltaX = x - i
                         let deltaY = y - j
                         deltaX = 0 || deltaY = 0)
                 |> Set.filter
-                    (fun (i, j) ->
+                    (fun pos ->
                         // Remove all occluded squares between start and end
-                        let travelSquares = squaresBetween (x, y) (i, j)
+                        let travelSquares = squaresBetween (x, y) pos
 
                         let unoccupiedTravelSquares =
                             Set.difference travelSquares occupiedSquares
 
                         unoccupiedTravelSquares = travelSquares)
                 |> Set.filter
-                    (fun (i, j) ->
+                    (fun (PiecePosition (i, j)) ->
                         // Remove all the King's squares for everyone but the King
+                        
+                        // TODO: pull kin's position squares out
+                        // as PiecePositions
                         [ (5, 5)
                           (-5, -5)
                           (-5, 5)
@@ -240,22 +230,24 @@ module App =
                         || isKing)
 
 
-    let enemyNeighbours (board: Board) (i, j) =
+    let enemyNeighbours (board: Board) pos =
+        let (PiecePosition (i,j)) = pos
         let neighbours =
             [ (i, j + 1)
               (i, j - 1)
               (i + 1, j)
               (i - 1, j) ]
+            |> List.map PiecePosition
             |> Set.ofList
 
         let kingsPiece =
             board.kingsMen
             |> toSet
             |> Set.add board.kingsPosition
-            |> Set.contains (i, j)
+            |> Set.contains pos
 
         let clansPiece =
-            board.clansMen |> toSet |> Set.contains (i, j)
+            board.clansMen |> toSet |> Set.contains pos
 
         if kingsPiece then
             board.clansMen
@@ -275,11 +267,12 @@ module App =
         | KingSide -> ClanSide
         | ClanSide -> KingSide
 
-    let capture (board: Board) (i, j) =
-        let horizontalAttackVector = [ (i + 1, j); (i - 1, j) ] |> Set.ofList
-        let verticalAttackVector = [ (i, j + 1); (i, j - 1) ] |> Set.ofList
+    let capture (board: Board) pos =
+        let (PiecePosition (i,j)) = pos
+        let horizontalAttackVector = [ (i + 1, j); (i - 1, j) ] |> List.map PiecePosition |> Set.ofList
+        let verticalAttackVector = [ (i, j + 1); (i, j - 1) ] |> List.map PiecePosition |> Set.ofList
 
-        let enemyNeighbours' = enemyNeighbours board (i, j)
+        let enemyNeighbours' = enemyNeighbours board pos
 
         let horizontalAttack =
             (horizontalAttackVector |> Set.isSubset) enemyNeighbours'
@@ -291,18 +284,18 @@ module App =
 
     let update (msg: Msg) (model: Model): Model * Cmd<Msg> =
         match msg with
-        | Move ((fromX, fromY), (toX, toY)) ->
+        | Move (fromPos, toPos) ->
             let isLegalMove =
-                legalMoves (fromX, fromY) model |> Set.contains (toX, toY)
+                legalMoves fromPos model |> Set.contains toPos
 
             if isLegalMove then
-                match model.boardState |> getPiece (fromX,fromY) with
+                match model.boardState |> getPiece fromPos with
                 | Some King ->
                     { model with
                           boardState =
                               { model.boardState with
-                                    kingsPosition = (toX, toY) } }
-                    , Cmd.batch [ Capture(toX, toY) |> Cmd.ofMsg
+                                    kingsPosition = toPos } }
+                    , Cmd.batch [ Capture toPos |> Cmd.ofMsg
                                   CheckWinner |> Cmd.ofMsg ]
                 | Some KingsMan ->
                     { model with
@@ -310,8 +303,8 @@ module App =
                               { model.boardState with
                                     kingsMen =
                                         model.boardState.kingsMen
-                                        |> replaceGuy (fromX, fromY) (Some(toX, toY)) } }
-                    , Cmd.batch [ Capture(toX, toY) |> Cmd.ofMsg
+                                        |> replaceGuy fromPos (Some toPos) } }
+                    , Cmd.batch [ Capture toPos |> Cmd.ofMsg
                                   CheckWinner |> Cmd.ofMsg ]
                 | Some ClansMan ->
                     { model with
@@ -319,36 +312,37 @@ module App =
                               { model.boardState with
                                     clansMen =
                                         model.boardState.clansMen
-                                        |> replaceGuy (fromX, fromY) (Some(toX, toY)) } }
-                    , Cmd.batch [ Capture(toX, toY) |> Cmd.ofMsg
+                                        |> replaceGuy fromPos (Some toPos) } }
+                    , Cmd.batch [ Capture toPos |> Cmd.ofMsg
                                   CheckWinner |> Cmd.ofMsg ]
                 | _ ->
                     model, Cmd.none
             else
                 model, Cmd.none
 
-        | DragStart ((i,j),(mouseX,mouseY)) ->
+        | DragStart (dragPiece, ScreenPosition (mouseX, mouseY)) ->
             { model with
-                  currentlyDragging = Some (i,j)
-                  startDragMousePos = (mouseX, mouseY) },
+                  currentlyDragging = Some dragPiece
+                  startDragMousePos = (mouseX, mouseY) |> ScreenPosition },
             Cmd.none
         | DragEnd data ->
             let stoppedDragging = 
                 { model with currentlyDragging = None }
             match model.currentlyDragging, data with
-            | Some (fromX, fromY), Some ((toX, toY), (mouseX, mouseY)) ->
-                let dragVector = (mouseX - fst model.startDragMousePos, mouseY - snd model.startDragMousePos)
-                let (startXScreen, startYScreen) = gameSpaceToScreenSpace model.squareSize (fromX, fromY)
-                { stoppedDragging with animationReleaseScreenPosition = (toX,
-                                                                          toY),
-                                                                          (startXScreen + fst dragVector,
-                                                                            startYScreen + snd dragVector ) }
-                , Move ((fromX,fromY), (toX, toY)) |> Cmd.ofMsg
+            | Some fromPos, Some (toPos, ScreenPosition (mouseX, mouseY)) ->
+                let (ScreenPosition (startX, startY)) = model.startDragMousePos
+                let dragVector = (mouseX - startX, mouseY - startY)
+                let (ScreenPosition (startXScreen, startYScreen)) = gameSpaceToScreenSpace model.squareSize fromPos
+                { stoppedDragging with animationReleaseScreenPosition = toPos,
+                                                                          ScreenPosition
+                                                                            (startXScreen + fst dragVector,
+                                                                             startYScreen + snd dragVector ) }
+                , Move (fromPos, toPos) |> Cmd.ofMsg
             | _ ->
                 stoppedDragging
                 , Cmd.none
-        | Capture (i, j) ->
-            let enemyNeighbours' = enemyNeighbours model.boardState (i, j)
+        | Capture capturePos ->
+            let enemyNeighbours' = enemyNeighbours model.boardState capturePos
 
             let capturedNeighbours =
                 enemyNeighbours'
@@ -391,12 +385,12 @@ module App =
 
     let render = FunctionComponent.Of(fun (model: Model, dispatch: Dispatch<Msg>) ->
         let isDragging = model.currentlyDragging
-        let (startMouseX, startMouseY) = model.startDragMousePos
+        let (ScreenPosition (startMouseX, startMouseY)) = model.startDragMousePos
         let currentDraggedPieceRef = Hooks.useRef<HTMLDivElement option> None
         let squareSize = model.squareSize
         Hooks.useEffectDisposable(fun () ->
                                       match isDragging, currentDraggedPieceRef.current with
-                                      | Some (i,j), Some ref ->
+                                      | Some (PiecePosition (i,j)), Some ref ->
                                            let i = boardSize / 2 + i
                                            let j = boardSize / 2 + j
                                            (document, "mousemove")
@@ -447,8 +441,8 @@ module App =
                   if isAttemptedDragTo then
                       BackgroundColor.aquaMarine ]
 
-        let pieceStyle pieceType (i,j) releasePosition =
-            let (x,y) = gameSpaceToScreenSpace model.squareSize (i,j)
+        let pieceStyle pieceType pos releasePosition =
+            let (ScreenPosition (x,y)) = gameSpaceToScreenSpace model.squareSize pos
             
             let percent percentage x = percentage * x / 100
             
@@ -516,23 +510,22 @@ module App =
 
         let allLegalMoves =
                 match model.currentlyDragging with
-                | None ->
-                    Set.empty
-                | Some (x,y) ->
-                        legalMoves (x,y) model
+                | None -> Set.empty
+                | Some pos -> legalMoves pos model
         
         let draw piece =
            function
            | _, None ->
                fragment [] []
-           | index, Some (i,j) ->
+           | index, Some (PiecePosition (i,j)) ->
 
-               let (draggingI, draggingJ) =
-                   model.currentlyDragging |> Option.defaultValue (-100, -100)
+               // TODO: Make not crap
+               let (PiecePosition (draggingI, draggingJ)) =
+                   model.currentlyDragging |> Option.defaultValue (PiecePosition (-100, -100))
                
                let isDraggingThisOne = draggingI = i && draggingJ = j
                
-               let ((pieceI, pieceJ), (screenX, screenY)) = model.animationReleaseScreenPosition
+               let (PiecePosition (pieceI, pieceJ), ScreenPosition (screenX, screenY)) = model.animationReleaseScreenPosition
 
                let releaseScreenPosition =
                      (if
@@ -545,7 +538,7 @@ module App =
                           None)
                
                div [ Key $"{piece}:{index}"
-                     ClassName( pieceStyle piece (i,j) releaseScreenPosition )
+                     ClassName( pieceStyle piece (PiecePosition (i,j)) releaseScreenPosition )
                      Ref (fun ref ->
                                 if isDraggingThisOne then
                                         let ref = ref :?> HTMLDivElement
@@ -557,21 +550,22 @@ module App =
             <| (boardCoords
                 |> List.ofSeq
                 |> List.map
-                    (fun (i, j) ->
+                    (fun pos ->
+                        let (PiecePosition (i,j)) = pos
                         div [ Key $"{i},{j}"
                               ClassName(
                                   square
-                                      (isKingsSquare i j)
-                                      (isKingsManSquare i j)
-                                      (isClansManSquare i j)
-                                      (isKingsCastle (i, j))
-                                      (allLegalMoves |> Set.contains (i,j))
+                                      (isKingsSquare pos)
+                                      (isKingsManSquare pos)
+                                      (isClansManSquare pos)
+                                      (isKingsCastle pos)
+                                      (allLegalMoves |> Set.contains pos)
                               )
                               OnMouseDown
                                  (fun e ->
-                                  dispatch <| DragStart ((i,j), (int e.clientX, int e.clientY)))
+                                  dispatch <| DragStart (pos, (int e.clientX, int e.clientY) |> ScreenPosition))
                               OnMouseUp
-                                  (fun e -> dispatch <| DragEnd (Some ((i,j), (int e.clientX, int e.clientY))))
+                                  (fun e -> dispatch <| DragEnd (Some (pos, (int e.clientX, int e.clientY) |> ScreenPosition)))
                              ] [] ))
             
             div [ ClassName gridSize ] 
@@ -590,6 +584,29 @@ module App =
                         (draw ClansMan))
                 
             ])
+
+    let initBoard () =
+        { kingsPosition = (0, 0) |> PiecePosition
+          kingsMen =
+              boardCoords
+              |> List.ofSeq
+              |> List.filter isKingsManSquare
+              |> List.map Some
+          clansMen =
+              boardCoords
+              |> List.ofSeq
+              |> List.filter isClansManSquare
+              |> List.map Some }
+ 
+    let init () =
+        { boardState = initBoard ()
+          winner = None
+          playerToMove = ClanSide
+          squareSize = 50
+          currentlyDragging = None
+          startDragMousePos = (0, 0) |> ScreenPosition
+          animationReleaseScreenPosition = (0, 0) |> PiecePosition, (0, 0) |> ScreenPosition },
+        Cmd.none
 
     let render' (model: Model) (dispatch: Dispatch<Msg>) =
         render (model,dispatch)
