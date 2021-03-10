@@ -26,11 +26,6 @@ module App =
         f x
         x
         
-    (**
-    * Constants
-    *)
-
-    let boardSize = 11
         
     (**
     * Domain types
@@ -47,13 +42,6 @@ module App =
     type ScreenPosition =
         ScreenPosition of int * int
 
-    // TODO: Move this guy
-    let boardCoords =
-        [ -(boardSize / 2) .. (boardSize / 2) ]
-        |> List.collect (fun i -> [ -(boardSize / 2) .. (boardSize / 2) ]
-                                  |> List.map (fun j -> (i, j) |> PiecePosition))
-        |> Set.ofList
-        
 
     type Board =
         { kingsPosition: PiecePosition
@@ -81,6 +69,17 @@ module App =
         | Capture of PiecePosition
         | CheckWinner
 
+    (**
+    * Constants
+    *)
+
+    let boardSize = 11
+    
+    let boardCoords =
+        [ -(boardSize / 2) .. (boardSize / 2) ]
+        |> List.collect (fun i -> [ -(boardSize / 2) .. (boardSize / 2) ]
+                                  |> List.map (fun j -> (i, j) |> PiecePosition))
+        |> Set.ofList
 
     (**
     * Domain-specific operations
@@ -107,7 +106,7 @@ module App =
             | Some pos when (guys |> Set.contains pos) -> None
             | x -> x)
 
-    let isKingsSquare (PiecePosition (i,j)) = i = 0 && j = 0
+    let isKingsThrone (PiecePosition (i,j)) = i = 0 && j = 0
 
     let isKingsManSquare (PiecePosition (i,j)) =
         let i' = Math.Abs i
@@ -137,6 +136,8 @@ module App =
     let isKingsCastle (PiecePosition (i, j)) =
            (i = (boardSize / 2) || i = -(boardSize / 2))
         && (j = (boardSize / 2) || j = -(boardSize / 2))
+    
+    let isKingsSquare pos = isKingsThrone pos || isKingsCastle pos
         
     let gameSpaceToScreenSpace squareSize (PiecePosition (i,j)) =
         let screenSpaceY = (boardSize / 2 + i) * squareSize
@@ -179,8 +180,7 @@ module App =
 
                 let allPossibleMoves = boardCoords
 
-                // TODO: x y PiecePosition as well
-                let rec squaresBetween (x: int, y: int) (PiecePosition (i, j)) =
+                let rec squaresBetween (PiecePosition (x, y)) (PiecePosition (i, j)) =
                     let deltaX = Math.Sign(i - x)
                     let deltaY = Math.Sign(j - y)
 
@@ -191,7 +191,7 @@ module App =
                        || deltaY < 0 && y <= j then
                         Set.empty
                     else
-                        squaresBetween (x + deltaX, y + deltaY) (PiecePosition (i, j))
+                        squaresBetween (PiecePosition (x + deltaX, y + deltaY)) (PiecePosition (i, j))
                         |> Set.add (PiecePosition (x + deltaX, y + deltaY))
 
                 allPossibleMoves
@@ -208,24 +208,18 @@ module App =
                 |> Set.filter
                     (fun pos ->
                         // Remove all occluded squares between start and end
-                        let travelSquares = squaresBetween (x, y) pos
+                        let travelSquares = squaresBetween (PiecePosition (x, y)) pos
 
                         let unoccupiedTravelSquares =
                             Set.difference travelSquares occupiedSquares
 
                         unoccupiedTravelSquares = travelSquares)
                 |> Set.filter
-                    (fun (PiecePosition (i, j)) ->
+                    (fun pos ->
                         // Remove all the King's squares for everyone but the King
-                        
-                        // TODO: pull kin's position squares out
-                        // as PiecePositions
-                        [ (5, 5)
-                          (-5, -5)
-                          (-5, 5)
-                          (5, -5)
-                          (0, 0) ]
-                        |> List.contains (i, j)
+                        boardCoords
+                        |> Set.filter isKingsSquare
+                        |> Set.contains pos
                         |> not
                         || isKing)
 
@@ -503,7 +497,7 @@ module App =
                                     ]
                                 ]
                               AnimationName' dropKeyframes
-                              AnimationDuration' (ms 50.)
+                              AnimationDuration' (ms 30.)
                               AnimationTimingFunction.CubicBezier(0.71,0.,1.,0.33)
                   ]
             ]
@@ -555,7 +549,7 @@ module App =
                         div [ Key $"{i},{j}"
                               ClassName(
                                   square
-                                      (isKingsSquare pos)
+                                      (isKingsThrone pos)
                                       (isKingsManSquare pos)
                                       (isClansManSquare pos)
                                       (isKingsCastle pos)
