@@ -42,7 +42,6 @@ module App =
     type ScreenPosition =
         ScreenPosition of int * int
 
-
     type Board =
         { kingsPosition: PiecePosition
           kingsMen: PiecePosition option list
@@ -84,6 +83,23 @@ module App =
     (**
     * Domain-specific operations
     *)
+    
+    type PieceDirection =
+        PieceDirection of int * int
+    
+    let (<+>) (PiecePosition (i,j)) (PieceDirection (di,dj)) =
+        PiecePosition (i + di, j + dj)
+        
+    let (<->) (PiecePosition (i,j)) (PiecePosition (i2,j2)) =
+        PieceDirection (i - i2, j - j2)
+        
+    let (<*>) f (PieceDirection (i,j)) =
+        PieceDirection (f i, f j)
+    
+    let yDir = PieceDirection (0, 1)
+    let xDir = PieceDirection (1, 0)
+    
+    let neg = (*) -1
 
     let toSet =
         List.collect
@@ -106,7 +122,8 @@ module App =
             | Some pos when (guys |> Set.contains pos) -> None
             | x -> x)
 
-    let isKingsThrone (PiecePosition (i,j)) = i = 0 && j = 0
+    let isKingsThrone =
+        (=) (PiecePosition (0,0))
 
     let isKingsManSquare (PiecePosition (i,j)) =
         let i' = Math.Abs i
@@ -225,13 +242,11 @@ module App =
 
 
     let enemyNeighbours (board: Board) pos =
-        let (PiecePosition (i,j)) = pos
         let neighbours =
-            [ (i, j + 1)
-              (i, j - 1)
-              (i + 1, j)
-              (i - 1, j) ]
-            |> List.map PiecePosition
+            [ pos <+> xDir
+              pos <+> (neg <*> xDir)
+              pos <+> yDir
+              pos <+> (neg <*> yDir) ]
             |> Set.ofList
 
         let kingsPiece =
@@ -262,9 +277,8 @@ module App =
         | ClanSide -> KingSide
 
     let capture (board: Board) pos =
-        let (PiecePosition (i,j)) = pos
-        let horizontalAttackVector = [ (i + 1, j); (i - 1, j) ] |> List.map PiecePosition |> Set.ofList
-        let verticalAttackVector = [ (i, j + 1); (i, j - 1) ] |> List.map PiecePosition |> Set.ofList
+        let horizontalAttackVector = [ pos <+> xDir; pos <+> (neg <*> xDir) ] |> Set.ofList
+        let verticalAttackVector = [ pos <+> yDir; pos <+> (neg <*> yDir) ] |> Set.ofList
 
         let enemyNeighbours' = enemyNeighbours board pos
 
