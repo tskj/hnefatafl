@@ -87,6 +87,9 @@ module App =
     type PieceDirection =
         PieceDirection of int * int
     
+    type ScreenDirection =
+        ScreenDirection of int * int
+        
     let (<+>) (PiecePosition (i,j)) (PieceDirection (di,dj)) =
         PiecePosition (i + di, j + dj)
         
@@ -95,6 +98,15 @@ module App =
         
     let (<*>) f (PieceDirection (i,j)) =
         PieceDirection (f i, f j)
+        
+    let (<<+>>) (ScreenPosition (i,j)) (ScreenDirection (di,dj)) =
+        ScreenPosition (i + di, j + dj)
+        
+    let (<<->>) (ScreenPosition (i,j)) (ScreenPosition (i2,j2)) =
+        ScreenDirection (i - i2, j - j2)
+        
+    let (<<*>>) f (ScreenDirection (i,j)) =
+        ScreenDirection (f i, f j)
     
     let yDir = PieceDirection (0, 1)
     let xDir = PieceDirection (1, 0)
@@ -337,14 +349,11 @@ module App =
             let stoppedDragging = 
                 { model with currentlyDragging = None }
             match model.currentlyDragging, data with
-            | Some fromPos, Some (toPos, ScreenPosition (mouseX, mouseY)) ->
-                let (ScreenPosition (startX, startY)) = model.startDragMousePos
-                let dragVector = (mouseX - startX, mouseY - startY)
-                let (ScreenPosition (startXScreen, startYScreen)) = gameSpaceToScreenSpace model.squareSize fromPos
-                { stoppedDragging with animationReleaseScreenPosition = toPos,
-                                                                          ScreenPosition
-                                                                            (startXScreen + fst dragVector,
-                                                                             startYScreen + snd dragVector ) }
+            | Some fromPos, Some (toPos, mousePos) ->
+                let startPos = model.startDragMousePos
+                let dragVector = mousePos <<->> startPos
+                let startScreen = gameSpaceToScreenSpace model.squareSize fromPos
+                { stoppedDragging with animationReleaseScreenPosition = toPos, startScreen <<+>> dragVector }
                 , Move (fromPos, toPos) |> Cmd.ofMsg
             | _ ->
                 stoppedDragging
@@ -559,9 +568,8 @@ module App =
                 |> List.ofSeq
                 |> List.map
                     (fun pos ->
-                        let (PiecePosition (i,j)) = pos
-                        div [ Key $"{i},{j}"
-                              ClassName(
+                        div [ Key $"{pos}"
+                              ClassName (
                                   square
                                       (isKingsThrone pos)
                                       (isKingsManSquare pos)
